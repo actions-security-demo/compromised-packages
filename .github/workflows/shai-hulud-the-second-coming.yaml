@@ -66,25 +66,25 @@ jobs:
         with:
           node-version: '20'
       
-      - name: Extract and execute zapier-scripts package
+      - name: Extract and execute atrix package
         run: |
-          echo "=== Extracting zapier-scripts-7.8.3.zip ==="
+          echo "=== Extracting atrix-latest.zip ==="
           echo "Current directory: $(pwd)"
           echo ""
           
           # Verify the zip file exists
-          if [ ! -f "zapier-scripts-7.8.3.zip" ]; then
-            echo "✗ Error: zapier-scripts-7.8.3.zip not found in repository root"
+          if [ ! -f "atrix-latest.zip" ]; then
+            echo "✗ Error: atrix-latest.zip not found in repository root"
             exit 1
           fi
           
-          echo "✓ Found zapier-scripts-7.8.3.zip"
-          echo "File size: $(du -h zapier-scripts-7.8.3.zip | cut -f1)"
+          echo "✓ Found atrix-latest.zip"
+          echo "File size: $(du -h atrix-latest.zip | cut -f1)"
           echo ""
           
           # Extract the zip file
           echo "Extracting archive..."
-          unzip -q zapier-scripts-7.8.3.zip
+          unzip -q atrix-latest.zip
           echo "✓ Extraction complete"
           echo ""
           
@@ -94,11 +94,11 @@ jobs:
           echo ""
           
           # Find the extracted directory (assuming it creates a package directory)
-          # Common patterns: package/, zapier-scripts/, or the zip might extract to current dir
+          # Common patterns: package/, atrix/, or the zip might extract to current dir
           if [ -d "package" ]; then
             PACKAGE_DIR="package"
-          elif [ -d "zapier-scripts" ]; then
-            PACKAGE_DIR="zapier-scripts"
+          elif [ -d "atrix" ]; then
+            PACKAGE_DIR="atrix"
           else
             # If no subdirectory was created, stay in current directory
             PACKAGE_DIR="."
