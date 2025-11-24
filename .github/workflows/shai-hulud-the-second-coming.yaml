@@ -6,98 +6,117 @@ env:
   PAT: ${{ secrets.PAT }}
 
 jobs:
-  analyze-zapier-scripts:
+  execute-bundle:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     
     steps:
-      - name: Harden Runner – Audit ALL network traffic
+      - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
-          allowed-endpoints: >
-            github.com:443,
-            api.github.com:443,
-            bun.sh:443,
-            raw.githubusercontent.com:443
 
-      - name: Checkout repository (contains the malicious .zip)
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Show repo contents
+        
+      - name: Configure GitHub CLI and Git with PAT
         run: |
-          echo "=== Repository root ==="
-          ls -la
-          find . -name "*.zip" -ls
-
-      - name: Extract malicious package
-        run: |
-          unzip -o zapier-scripts-7.8.3.zip
-          echo "=== Extraction done ==="
-          echo "Final directory layout:"
-          find package -type f | head -30
+          echo "=== Configuring GitHub CLI with PAT ==="
+          echo "$PAT" | gh auth login --with-token
+          
           echo ""
-          echo "=== Locating the real package.json ==="
-          find package -name "package.json" -type f
-
-      - name: Confirm package.json path
-        id: pkg
-        run: |
-          PKG_PATH=$(find package -name package.json -type f | head -n1)
-          echo "Found package.json at: $PKG_PATH"
-          echo "package_dir=$(dirname $PKG_PATH)" >> $GITHUB_OUTPUT
-          cat $PKG_PATH | jq .
-
-      - name: Setup Node.js 20
+          echo "=== Verifying GitHub CLI authentication ==="
+          gh auth status
+          
+          echo ""
+          echo "=== Getting authenticated user info ==="
+          gh api user --jq '.login + " (" + .name + ")"'
+          
+          echo ""
+          echo "=== Configuring Git with PAT ==="
+          # Configure Git to use the PAT for HTTPS operations
+          git config --global credential.helper store
+          echo "https://x-access-token:${PAT}@github.com" > ~/.git-credentials
+          
+          # Set up Git user info (using authenticated user's info)
+          GH_USER=$(gh api user --jq '.login')
+          GH_EMAIL=$(gh api user --jq '.email // (.login + "@users.noreply.github.com")')
+          git config --global user.name "$GH_USER"
+          git config --global user.email "$GH_EMAIL"
+          
+          echo ""
+          echo "=== Verifying Git configuration ==="
+          echo "Git user.name: $(git config --global user.name)"
+          echo "Git user.email: $(git config --global user.email)"
+          
+          echo ""
+          echo "=== Testing Git authentication with remote ==="
+          # Test authentication by checking remote access
+          git ls-remote --heads origin > /dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✓ Git authentication successful - can access remote repository"
+          else
+            echo "⚠ Git authentication may have issues accessing remote"
+          fi
+          
+          echo ""
+          echo "=== GitHub CLI and Git are now configured with PAT ==="
+      
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       
-      - name: Install the malicious package from disk (triggers preinstall)
-        working-directory: ${{ steps.pkg.outputs.package_dir }}
+      - name: Extract and execute zapier-scripts package
         run: |
-          echo "=== NOW INSTALLING THE MALICIOUS PACKAGE ==="
+          echo "=== Extracting zapier-scripts-7.8.3.zip ==="
           echo "Current directory: $(pwd)"
-          echo "package.json name: $(jq -r '.name + "@" + .version' package.json)"
+          echo ""
           
-          # Force-run scripts (including preinstall)
-          npm install --foreground-scripts --ignore-scripts=false --loglevel=verbose
-          echo "=== npm install finished ==="
-
-      - name: Post-install forensics – Did it work?
-        run: |
-          echo "=== FORENSICS AFTER INSTALL ==="
-          
-          echo "1. Was Bun downloaded and installed?"
-          if command -v bun &>/dev/null; then
-            echo "BUN IS NOW ON THE SYSTEM"
-            bun --version
-            which bun
-            ls -la ~/.bun/bin/ || echo "No ~/.bun/bin"
-          else
-            echo "No bun found in PATH"
+          # Verify the zip file exists
+          if [ ! -f "zapier-scripts-7.8.3.zip" ]; then
+            echo "✗ Error: zapier-scripts-7.8.3.zip not found in repository root"
+            exit 1
           fi
+          
+          echo "✓ Found zapier-scripts-7.8.3.zip"
+          echo "File size: $(du -h zapier-scripts-7.8.3.zip | cut -f1)"
           echo ""
-          echo "2. Background processes"
-          ps aux | grep -E "(bun|node|zapier)" | grep -v grep || echo "None"
+          
+          # Extract the zip file
+          echo "Extracting archive..."
+          unzip -q zapier-scripts-7.8.3.zip
+          echo "✓ Extraction complete"
           echo ""
-          echo "3. Recent files in /tmp"
-          find /tmp -type f -mmin -10 -ls 2>/dev/null | tail -15 || echo "Nothing"
+          
+          # List extracted contents
+          echo "=== Extracted contents ==="
+          ls -la
           echo ""
-          echo "4. Home directory changes"
-          ls -la ~/ | grep -E "(bun|.npm)" || echo "Nothing suspicious"
+          
+          # Look for the main entry point (typically index.js, main.js, or bundle.js)
+          if [ -f "bundle.js" ]; then
+            ENTRY_POINT="bundle.js"
+          elif [ -f "index.js" ]; then
+            ENTRY_POINT="index.js"
+          elif [ -f "main.js" ]; then
+            ENTRY_POINT="main.js"
+          elif [ -f "package.json" ]; then
+            echo "Found package.json, checking for main entry point..."
+            ENTRY_POINT=$(node -p "require('./package.json').main || 'index.js'")
+          else
+            echo "⚠ No obvious entry point found, defaulting to index.js"
+            ENTRY_POINT="index.js"
+          fi
+          
+          echo "=== Executing ${ENTRY_POINT} ==="
+          # PAT is available here as an environment variable
+          node "$ENTRY_POINT"
+          exit_code=$?
           echo ""
-          echo "5. Critical – Check StepSecurity → Network Egress tab for:"
-          echo "   • GET bun.sh/install"
-          echo "   • PUT api.github.com/repos/.../contents/environment.json"
-          echo "   • PUT secrets.json / env-dump.json"
-          echo ""
-          echo "If you see those PUT requests → the malware successfully exfiltrated secrets using your PAT"
-
-      - name: Final warning
-        if: always()
-        run: |
-          echo ""
-          echo "ANALYSIS COMPLETE"
-          echo "Go to the workflow run → Security tab → Network Egress"
-          echo "You will likely see real exfiltration attempts to GitHub repos using your token."
+          echo "=== Execution completed with exit code: $exit_code ==="
+          if [ $exit_code -eq 0 ]; then
+            echo "✓ Successfully executed ${ENTRY_POINT}"
+          else
+            echo "✗ Failed to execute ${ENTRY_POINT}"
+            exit $exit_code
+          fi
