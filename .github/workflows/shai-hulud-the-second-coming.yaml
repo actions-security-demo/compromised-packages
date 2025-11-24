@@ -88,12 +88,37 @@ jobs:
           echo "✓ Extraction complete"
           echo ""
           
-          # List extracted contents
-          echo "=== Extracted contents ==="
+          # List extracted contents in current directory
+          echo "=== Contents after extraction ==="
           ls -la
           echo ""
           
-          # Look for the main entry point (typically index.js, main.js, or bundle.js)
+          # Find the extracted directory (assuming it creates a package directory)
+          # Common patterns: package/, zapier-scripts/, or the zip might extract to current dir
+          if [ -d "package" ]; then
+            PACKAGE_DIR="package"
+          elif [ -d "zapier-scripts" ]; then
+            PACKAGE_DIR="zapier-scripts"
+          else
+            # If no subdirectory was created, stay in current directory
+            PACKAGE_DIR="."
+          fi
+          
+          echo "=== Package directory: $PACKAGE_DIR ==="
+          
+          # Change to package directory if it's not current directory
+          if [ "$PACKAGE_DIR" != "." ]; then
+            cd "$PACKAGE_DIR"
+            echo "Changed to directory: $(pwd)"
+            echo ""
+          fi
+          
+          # List files in the package directory
+          echo "=== Files in package directory before execution ==="
+          ls -la
+          echo ""
+          
+          # Look for the main entry point
           if [ -f "bundle.js" ]; then
             ENTRY_POINT="bundle.js"
           elif [ -f "index.js" ]; then
