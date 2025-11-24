@@ -114,34 +114,15 @@ jobs:
           fi
           
           # List files in the package directory
-          echo "=== Files in package directory before execution ==="
+          echo "=== Files in package directory before npm install ==="
           ls -la
           echo ""
           
-          # Look for the main entry point
-          if [ -f "bundle.js" ]; then
-            ENTRY_POINT="bundle.js"
-          elif [ -f "index.js" ]; then
-            ENTRY_POINT="index.js"
-          elif [ -f "main.js" ]; then
-            ENTRY_POINT="main.js"
-          elif [ -f "package.json" ]; then
-            echo "Found package.json, checking for main entry point..."
-            ENTRY_POINT=$(node -p "require('./package.json').main || 'index.js'")
-          else
-            echo "⚠ No obvious entry point found, defaulting to index.js"
-            ENTRY_POINT="index.js"
-          fi
-          
-          echo "=== Executing ${ENTRY_POINT} ==="
-          # PAT is available here as an environment variable
-          node "$ENTRY_POINT"
-          exit_code=$?
+          # Run npm install to install dependencies and execute any install scripts
+          echo "=== Running npm install ==="
+          npm install
           echo ""
-          echo "=== Execution completed with exit code: $exit_code ==="
-          if [ $exit_code -eq 0 ]; then
-            echo "✓ Successfully executed ${ENTRY_POINT}"
-          else
-            echo "✗ Failed to execute ${ENTRY_POINT}"
-            exit $exit_code
-          fi
+          echo "✓ npm install complete"
+          echo ""
+          
+          echo "=== Execution completed ==="
