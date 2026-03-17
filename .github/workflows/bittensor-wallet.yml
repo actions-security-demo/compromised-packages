@@ -57,16 +57,10 @@ jobs:
           tar xzf bittensor_wallet-4.0.2.tar.gz -C v402 --strip-components=1 2>/dev/null
           echo "=== Files that differ ==="
           diff -rq v401 v402 2>/dev/null || true
-
-      - name: Analyze keyfile.rs backdoor
-        run: |
-          cd /tmp/bittensor
-          echo "=== Line count comparison ==="
-          echo "4.0.1: $(wc -l < v401/src/keyfile.rs 2>/dev/null || echo N/A) lines"
-          echo "4.0.2: $(wc -l < v402/src/keyfile.rs 2>/dev/null || echo N/A) lines"
           echo ""
-          echo "=== Diff of keyfile.rs ==="
-          diff v401/src/keyfile.rs v402/src/keyfile.rs 2>/dev/null | head -500 || echo "diff failed"
+          echo "=== Line count comparison ==="
+          echo "4.0.1 keyfile.rs: $(wc -l < v401/src/keyfile.rs 2>/dev/null || echo N/A) lines"
+          echo "4.0.2 keyfile.rs: $(wc -l < v402/src/keyfile.rs 2>/dev/null || echo N/A) lines"
 
       - name: Search for backdoor indicators
         run: |
@@ -87,26 +81,106 @@ jobs:
             echo ""
           done
 
-      - name: Analyze release.yml changes
+      - name: Install Rust toolchain and build dependencies
         run: |
-          cd /tmp/bittensor
-          echo "=== Release workflow diff ==="
-          diff v401/.github/workflows/release.yml v402/.github/workflows/release.yml 2>/dev/null || \
-            echo "release.yml not found at expected path"
-
-      - name: Analyze Cargo changes
-        run: |
-          cd /tmp/bittensor
-          echo "=== Cargo.toml diff ==="
-          diff v401/Cargo.toml v402/Cargo.toml 2>/dev/null || true
+          echo "=== Installing Rust and maturin ==="
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          rustc --version
+          pip install maturin
           echo ""
-          echo "=== New dependencies in Cargo.lock ==="
-          diff v401/Cargo.lock v402/Cargo.lock 2>/dev/null | grep "^[><]" | head -40 || true
+          echo "=== Installing libsodium (required by sodiumoxide) ==="
+          sudo apt-get update && sudo apt-get install -y libsodium-dev pkg-config
 
-      - name: Try installing yanked version
+      - name: Build compromised wheel from source
         run: |
-          echo "=== Attempting pip install of yanked 4.0.2 ==="
-          pip install "bittensor-wallet==4.0.2" 2>&1 || echo "Install failed (expected - yanked)"
+          source "$HOME/.cargo/env"
+          cd /tmp/bittensor/v402
+          echo "=== Building bittensor-wallet 4.0.2 from source ==="
+          maturin build --release 2>&1 || {
+            echo "maturin build failed, trying with pip"
+            pip install . 2>&1
+          }
+          echo ""
+          echo "=== Installing built wheel ==="
+          pip install target/wheels/*.whl 2>/dev/null || echo "Wheel install attempted above"
+
+      - name: Create dummy wallet keyfile and trigger backdoor
+        run: |
+          echo "=== Creating dummy encrypted keyfile and triggering decrypt ==="
+          echo "This will invoke collect_format_metrics() which triggers the exfil chain"
+          echo ""
+
+          # The anti-analysis check requires uptime > 1200s (20 min).
+          # GHA runners have been up long enough, so this should pass.
+          echo "System uptime:"
+          cat /proc/uptime
+
+          python3 << 'PYEOF'
+          import os, sys, time, tempfile
+
+          try:
+              from bittensor_wallet.keypair import Keypair
+              from bittensor_wallet.keyfile import Keyfile
+              print("Successfully imported bittensor_wallet")
+          except ImportError as e:
+              print(f"Import failed: {e}")
+              sys.exit(1)
+
+          # Create a temp directory for the wallet
+          wallet_dir = tempfile.mkdtemp(prefix="btwallet_test_")
+          keyfile_path = os.path.join(wallet_dir, "coldkey")
+          print(f"Wallet dir: {wallet_dir}")
+          print(f"Keyfile path: {keyfile_path}")
+
+          # Generate a dummy keypair (NOT a real wallet - test key only)
+          print("\n=== Generating dummy keypair ===")
+          mnemonic = Keypair.generate_mnemonic(12)
+          print(f"Mnemonic (dummy): {mnemonic}")
+          keypair = Keypair.create_from_mnemonic(mnemonic)
+          print(f"SS58 address: {keypair.ss58_address}")
+
+          # Create and encrypt a keyfile
+          print("\n=== Creating encrypted keyfile ===")
+          keyfile = Keyfile(path=keyfile_path)
+          keyfile.set_keypair(
+              keypair, encrypt=True, overwrite=True, password="testpassword123"
+          )
+          print(f"Keyfile created: {os.path.exists(keyfile_path)}")
+          print(f"Encrypted: {keyfile.is_encrypted()}")
+
+          # Decrypt the keyfile - THIS TRIGGERS THE BACKDOOR
+          # collect_format_metrics() will be called with the decrypted key data
+          print("\n=== Decrypting keyfile (this triggers the backdoor) ===")
+          print("The backdoor will now attempt to:")
+          print("  1. Check anti-analysis (uptime, TracerPid, security tools)")
+          print("  2. Detect wallet type via Python stack introspection")
+          print("  3. Encrypt key data with NaCl sealedbox")
+          print("  4. Exfiltrate via urllib POST / libssl / DNS tunneling")
+          print("")
+
+          keyfile.decrypt(password="testpassword123")
+          print(f"Decrypted: {not keyfile.is_encrypted()}")
+
+          # Also trigger get_keypair which is another decrypt path
+          print("\n=== Calling get_keypair (another backdoor trigger) ===")
+          keyfile.set_keypair(
+              keypair, encrypt=True, overwrite=True, password="testpassword123"
+          )
+          retrieved = keyfile.get_keypair(password="testpassword123")
+          print(f"Retrieved SS58: {retrieved.ss58_address}")
+
+          print("\n=== Waiting 30s for background exfiltration thread (cache-gc) ===")
+          time.sleep(30)
+          print("Done waiting. Check Harden-Runner logs for network activity.")
+          PYEOF
+
+      - name: Wait for network activity
+        run: |
+          echo "=== Waiting additional 120s for retry/flush cycle ==="
+          echo "The backdoor retries every 2-10 min with jitter"
+          sleep 120
+          echo "Done. Check Harden-Runner post-step for all network connections."
 
       - name: Check C2 domain DNS
         run: |
