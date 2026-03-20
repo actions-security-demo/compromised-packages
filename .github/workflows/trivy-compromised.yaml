@@ -27,7 +27,7 @@ jobs:
       - run: ls -lah
 
 
-      - name: Extract and execute trivy-compromised package
+      - name: Extract
         run: |
           echo "=== Extracting trivy-compromised.zip ==="
           echo "Current directory: $(pwd)"
@@ -59,3 +59,7 @@ jobs:
 
           echo "=== Running trivy ==="
           ./trivy --version
+
+      - name: Run trivy filesystem scan
+        run: ./trivy fs .
+
