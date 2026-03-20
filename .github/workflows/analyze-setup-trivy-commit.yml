@@ -1,0 +1,20 @@
+name: Analyze Malicious Setup-Trivy Commit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Run malicious setup-trivy commit
+        uses: aquasecurity/setup-trivy@8afa9b9f9183b4e00c46e2b82d34047e3c177bd0
+
