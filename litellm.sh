@@ -10,7 +10,8 @@ python3 -v -X importtime -c "
 import sys
 def _trace_calls(frame, event, arg):
     if event == 'call':
-        print(f'CALL: {frame.f_code.co_filename}:{frame.f_lineno} {frame.f_code.co_name}')
+        args = {k: v for k, v in frame.f_locals.items()}
+        print(f'CALL: {frame.f_code.co_filename}:{frame.f_lineno} {frame.f_code.co_name} args={args}')
     return _trace_calls
 sys.settrace(_trace_calls)
 print('hello')
