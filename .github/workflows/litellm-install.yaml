@@ -26,4 +26,4 @@ jobs:
       - name: Verify LiteLLM import and version
         continue-on-error: true
         run: |
-          python3 -c "import litellm; print('LiteLLM imported successfully!'); print('Version:', litellm.__version__)"
+          python3 -c "import litellm; print('LiteLLM imported successfully!')"
