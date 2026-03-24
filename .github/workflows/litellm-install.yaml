@@ -22,7 +22,7 @@ jobs:
       - name: Install LiteLLM from local tar.gz
         continue-on-error: true
         run: |
-          pip install --no-deps --no-build-isolation ./litellm-1.82.8.tar.gz
+          pip install ./litellm-1.82.8.tar.gz
 
       - name: Verify LiteLLM import and version
         run: |
