@@ -1,0 +1,101 @@
+name: Install telnyx Compromised Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  install-telnyx-ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install telnyx 4.87.1 from local tar.gz
+        continue-on-error: true
+        run: |
+          pip install ./telnyx-4.87.1.tar.gz
+
+      - name: Install telnyx 4.87.2 from local tar.gz
+        continue-on-error: true
+        run: |
+          pip install ./telnyx-4.87.2.tar.gz
+
+      - name: Create sample telnyx client
+        continue-on-error: true
+        run: |
+          python3 << 'EOF'
+          import telnyx
+          print("telnyx version:", telnyx.__version__)
+
+          # Configure with a dummy API key
+          telnyx.api_key = "KEY017000000000000000000000000000_dummy"
+
+          # Try creating a client and listing resources
+          try:
+              messages = telnyx.Message.list(page_size=1)
+              print("Messages response:", messages)
+          except telnyx.error.AuthenticationError as e:
+              print("Expected auth error (dummy key):", e)
+          except Exception as e:
+              print("Error:", type(e).__name__, e)
+          EOF
+
+      - name: Print artifacts
+        run: |
+          ls /tmp
+
+  install-telnyx-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install telnyx 4.87.1 from local tar.gz
+        continue-on-error: true
+        run: |
+          pip install ./telnyx-4.87.1.tar.gz
+
+      - name: Install telnyx 4.87.2 from local tar.gz
+        continue-on-error: true
+        run: |
+          pip install ./telnyx-4.87.2.tar.gz
+
+      - name: Create sample telnyx client
+        continue-on-error: true
+        run: |
+          python3 << 'EOF'
+          import telnyx
+          print("telnyx version:", telnyx.__version__)
+
+          # Configure with a dummy API key
+          telnyx.api_key = "KEY017000000000000000000000000000_dummy"
+
+          # Try creating a client and listing resources
+          try:
+              messages = telnyx.Message.list(page_size=1)
+              print("Messages response:", messages)
+          except telnyx.error.AuthenticationError as e:
+              print("Expected auth error (dummy key):", e)
+          except Exception as e:
+              print("Error:", type(e).__name__, e)
+          EOF
+        shell: bash
+
+      - name: Print artifacts
+        run: |
+          dir %TEMP%
+        shell: cmd
