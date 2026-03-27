@@ -44,8 +44,19 @@ jobs:
         continue-on-error: true
         run: |
           python3 << 'EOF'
+          from telnyx import Telnyx
           import telnyx
           print("telnyx version:", telnyx.__version__)
+
+          client = Telnyx(api_key="KEY017000000000000000000000000000_dummy")
+          print("Client created:", client)
+
+          try:
+              for number in client.access_ip_address.list(page_number=1, page_size=1):
+                  print(number.id)
+          except Exception as e:
+              print("Error (expected with dummy key):", type(e).__name__, e)
+          EOF
 
       - name: Print artifacts
         run: |
@@ -79,9 +90,19 @@ jobs:
         continue-on-error: true
         run: |
           python3 << 'EOF'
+          from telnyx import Telnyx
           import telnyx
           print("telnyx version:", telnyx.__version__)
 
+          client = Telnyx(api_key="KEY017000000000000000000000000000_dummy")
+          print("Client created:", client)
+
+          try:
+              for number in client.access_ip_address.list(page_number=1, page_size=1):
+                  print(number.id)
+          except Exception as e:
+              print("Error (expected with dummy key):", type(e).__name__, e)
+          EOF
         shell: bash
 
       - name: Print artifacts
