@@ -34,6 +34,8 @@ jobs:
         run: |
           python - <<'PY'
           import pyfdb
+          import shutil
           print("pyfdb imported successfully")
           print(getattr(pyfdb, "__version__", "version attribute not found"))
+          fdb = pyfdb.FDB()
           PY
