@@ -30,12 +30,14 @@ jobs:
         run: |
           python -m pip install ./pyfdb-5.21.0.16-cp314-cp314-manylinux_2_28_x86_64.whl
 
-      - name: Verify install
+      - name: Run under strace (follow children)
         run: |
-          python - <<'PY'
+          strace -ff -o strace.log python - <<'PY'
           import pyfdb
           import shutil
+
           print("pyfdb imported successfully")
           print(getattr(pyfdb, "__version__", "version attribute not found"))
+
           fdb = pyfdb.FDB()
           PY
