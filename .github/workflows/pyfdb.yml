@@ -1,4 +1,4 @@
-name: Install local wheel
+name: Install pyfdb
 
 on:
   workflow_dispatch:
