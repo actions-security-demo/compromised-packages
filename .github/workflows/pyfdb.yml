@@ -41,3 +41,5 @@ jobs:
 
           fdb = pyfdb.FDB()
           PY
+
+      - run: cat strace.log
