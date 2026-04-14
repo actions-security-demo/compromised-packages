@@ -35,8 +35,8 @@ jobs:
           echo "=== Method 1: Direct tarball download ==="
           for version in 39.0.7 39.0.6 39.0.5 39.0.0; do
             echo "--- Trying traefik-${version}.tgz ---"
-            HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/charts-gcs/traefik-${version}.tgz \
-              "https://storage.googleapis.com/kubernetes-charts/traefik-${version}.tgz" 2>&1)
+            HTTP_CODE=$(curl -sL -o /tmp/charts-gcs/traefik-${version}.tgz -w '%{http_code}' \
+              "https://storage.googleapis.com/kubernetes-charts/traefik-${version}.tgz")
             echo "HTTP status: $HTTP_CODE"
             if [ "$HTTP_CODE" = "200" ]; then
               echo "SUCCESS: Downloaded traefik-${version}.tgz"
@@ -52,8 +52,8 @@ jobs:
           echo "=== Method 2: GCS JSON API ==="
           for version in 39.0.7 39.0.6 39.0.5; do
             echo "--- Trying via JSON API: traefik-${version}.tgz ---"
-            HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/charts-gcs/traefik-${version}-api.tgz \
-              "https://storage.googleapis.com/storage/v1/b/kubernetes-charts/o/traefik-${version}.tgz?alt=media" 2>&1)
+            HTTP_CODE=$(curl -sL -o /tmp/charts-gcs/traefik-${version}-api.tgz -w '%{http_code}' \
+              "https://storage.googleapis.com/storage/v1/b/kubernetes-charts/o/traefik-${version}.tgz?alt=media")
             echo "HTTP status: $HTTP_CODE"
             if [ "$HTTP_CODE" = "200" ]; then
               echo "SUCCESS via API"
@@ -73,17 +73,19 @@ jobs:
 
           echo ""
           echo "=== Method 4: Try index.yaml directly ==="
-          curl -sL -w "
-HTTP status: %{http_code}
-" \
-            "https://storage.googleapis.com/kubernetes-charts/index.yaml" | head -50
+          HTTP_CODE=$(curl -sL -o /tmp/gcs-index.yaml -w '%{http_code}' "https://storage.googleapis.com/kubernetes-charts/index.yaml")
+          echo "index.yaml HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            head -50 /tmp/gcs-index.yaml
+          fi
 
           echo ""
           echo "=== GCS bucket listing attempt ==="
-          curl -sL -w "
-HTTP status: %{http_code}
-" \
-            "https://storage.googleapis.com/storage/v1/b/kubernetes-charts/o?prefix=traefik&maxResults=10" | head -50
+          HTTP_CODE=$(curl -sL -o /tmp/gcs-listing.json -w '%{http_code}' "https://storage.googleapis.com/storage/v1/b/kubernetes-charts/o?prefix=traefik&maxResults=10")
+          echo "Bucket listing HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            cat /tmp/gcs-listing.json
+          fi
 
           echo ""
           echo "=== Contents of /tmp/charts-gcs ==="
@@ -112,45 +114,14 @@ HTTP status: %{http_code}
 
           echo ""
           echo "=== Checking for helm-config.yaml in official chart ==="
-          if find /tmp/charts-official -name "helm-config.yaml" -type f | grep -q .; then
+          HELM_CONFIG=$(find /tmp/charts-official -name "helm-config.yaml" -type f 2>/dev/null)
+          if [ -n "$HELM_CONFIG" ]; then
             echo "WARNING: helm-config.yaml found in official chart too!"
-            find /tmp/charts-official -name "helm-config.yaml" -type f -exec cat {} \;
+            cat "$HELM_CONFIG"
           else
             echo "CONFIRMED: helm-config.yaml is NOT in the official chart"
             echo "This file was injected only in the GCS-hosted version"
           fi
-
-      - name: Simulate compromised chart for Harden Runner analysis
-        run: |
-          echo "=== Creating simulated compromised chart to test Harden Runner detection ==="
-          echo "The GCS bucket may be locked down, so we simulate the reported attack."
-          echo "The malicious helm-config.yaml was reported to contain a base64-encoded"
-          echo "shell script that exfiltrates to http://rspds.de/report"
-          echo ""
-
-          # Copy the official chart and inject the reported malicious template
-          if [ -d /tmp/charts-official/traefik ]; then
-            cp -r /tmp/charts-official/traefik /tmp/charts-simulated
-          else
-            mkdir -p /tmp/charts-simulated/templates
-          fi
-
-          # Create the reported malicious template that does a DNS lookup
-          # and attempts HTTP connection to rspds.de (the exfiltration endpoint)
-          # This is safe - we only trigger DNS + connection attempt, no real data sent
-          cat > /tmp/charts-simulated/templates/helm-config.yaml << 'TMPL'
-          {{- /* Simulated compromised template - triggers network connection to reported C2 */ -}}
-          {{- /* Original payload collected AWS/Azure tokens and sent to rspds.de/report */ -}}
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: helm-config-check
-          data:
-            status: "compromised-chart-analysis"
-          TMPL
-
-          echo "=== Simulated chart created ==="
-          find /tmp/charts-simulated -type f | sort
 
       - name: Test DNS resolution to exfiltration domain
         continue-on-error: true
@@ -160,21 +131,11 @@ HTTP status: %{http_code}
           dig rspds.de A +short || true
 
           echo ""
-          echo "=== Checking if rspds.de/report is reachable ==="
+          echo "=== Checking if rspds.de/report endpoint is reachable ==="
           curl -sv --connect-timeout 5 --max-time 10 http://rspds.de/report 2>&1 || true
 
           echo ""
           echo "=== All network activity above will be captured by Harden Runner ==="
-
-      - name: Render simulated chart with helm template
-        continue-on-error: true
-        run: |
-          if [ -d /tmp/charts-simulated ] && [ -f /tmp/charts-simulated/Chart.yaml ]; then
-            echo "=== Running helm template on simulated chart ==="
-            helm template traefik-test /tmp/charts-simulated 2>&1 || true
-          else
-            echo "Simulated chart missing Chart.yaml, skipping template render"
-          fi
 
       - name: Wait for network activity capture
         run: |
@@ -197,7 +158,7 @@ HTTP status: %{http_code}
           echo "  - Injected file: templates/helm-config.yaml"
           echo "  - Payload: base64-encoded shell script"
           echo "  - Exfiltration target: http://rspds.de/report"
-          echo "  - Data collected: hostname, environment metadata, AWS tokens, Azure tokens"
+          echo "  - Data collected: hostname, env metadata, AWS tokens, Azure tokens"
           echo "  - NOT present in official chart from https://traefik.github.io/charts"
           echo ""
           echo "GCS Bucket Status:"
@@ -211,14 +172,20 @@ HTTP status: %{http_code}
           echo "=== Check Harden Runner dashboard for full network analysis ==="
           echo "Look for connections to: rspds.de, and any unexpected outbound traffic"
 
-      - name: Upload artifacts
+      - name: Upload GCS chart artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: traefik-helm-chart-analysis
-          path: |
-            /tmp/charts-gcs/
-            /tmp/charts-official/
-            /tmp/charts-simulated/
+          name: traefik-helm-chart-gcs
+          path: /tmp/charts-gcs/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Upload official chart for comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traefik-helm-chart-official
+          path: /tmp/charts-official/
           retention-days: 90
           if-no-files-found: warn
