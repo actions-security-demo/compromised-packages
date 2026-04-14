@@ -1,0 +1,139 @@
+name: Analyze Compromised Traefik Helm Chart (GCS)
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  download-chart:
+    name: Download and inspect compromised chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
+      - name: Add compromised chart repo and pull chart
+        run: |
+          echo "=== Adding chart repo from compromised GCS source ==="
+          helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts
+          helm repo update
+
+          echo ""
+          echo "=== Pulling traefik chart ==="
+          mkdir -p /tmp/charts
+          helm pull kubernetes-charts/traefik --destination /tmp/charts --untar || true
+          echo ""
+          echo "=== Chart contents ==="
+          find /tmp/charts -type f | sort
+
+      - name: Inspect malicious helm-config.yaml
+        run: |
+          echo "=== Looking for templates/helm-config.yaml ==="
+          if [ -f /tmp/charts/traefik/templates/helm-config.yaml ]; then
+            echo "FOUND: templates/helm-config.yaml"
+            echo ""
+            echo "=== Raw file contents ==="
+            cat /tmp/charts/traefik/templates/helm-config.yaml
+            echo ""
+            echo "=== Attempting to decode base64 payload ==="
+            # Extract and decode any base64 encoded content
+            grep -oP '[A-Za-z0-9+/=]{100,}' /tmp/charts/traefik/templates/helm-config.yaml | while read -r encoded; do
+              echo "--- Decoded payload ---"
+              echo "$encoded" | base64 -d 2>/dev/null || echo "(decode failed)"
+              echo "--- End decoded payload ---"
+            done
+          else
+            echo "helm-config.yaml not found in templates/"
+            echo "Listing all template files:"
+            ls -la /tmp/charts/traefik/templates/ 2>/dev/null || echo "No templates directory"
+          fi
+
+      - name: Compare with GitHub source chart
+        run: |
+          echo "=== Pulling chart from official GitHub source for comparison ==="
+          helm repo add traefik-github https://traefik.github.io/charts
+          helm repo update
+          mkdir -p /tmp/charts-github
+          helm pull traefik-github/traefik --destination /tmp/charts-github --untar || true
+
+          echo ""
+          echo "=== Files only in GCS version (potentially injected) ==="
+          diff <(cd /tmp/charts && find traefik -type f | sort) \
+               <(cd /tmp/charts-github && find traefik -type f | sort) || true
+
+      - name: Upload chart artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: traefik-helm-chart-gcs-compromised
+          path: /tmp/charts/
+          retention-days: 90
+
+      - name: Upload clean chart for comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: traefik-helm-chart-github-clean
+          path: /tmp/charts-github/
+          retention-days: 90
+
+  template-compromised-chart:
+    name: Render compromised chart to trigger payload
+    runs-on: ubuntu-latest
+    needs: download-chart
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
+      - name: Pull compromised chart
+        run: |
+          helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts
+          helm repo update
+          mkdir -p /tmp/charts
+          helm pull kubernetes-charts/traefik --destination /tmp/charts --untar || true
+
+      - name: Render chart with helm template
+        continue-on-error: true
+        run: |
+          echo "=== Running helm template to trigger any embedded payloads ==="
+          cd /tmp/charts
+          helm template traefik-test ./traefik 2>&1 || true
+
+      - name: Wait for malware network activity
+        run: |
+          echo "Waiting 60 seconds for any network exfiltration activity..."
+          echo "Harden Runner will capture all outbound connections."
+          echo "Expected exfiltration target: rspds.de/report"
+          sleep 60
+
+      - name: Check for exfiltration artifacts
+        run: |
+          echo "=== Check environment for leaked tokens ==="
+          echo "AWS metadata endpoint check:"
+          curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/ 2>&1 || echo "Not on AWS (expected in GitHub Actions)"
+          echo ""
+          echo "=== Check running background processes ==="
+          ps aux | grep -E "curl|wget|bash|nohup|base64" | grep -v grep || echo "No suspicious processes found"
+          echo ""
+          echo "=== Check /tmp for dropped files ==="
+          ls -la /tmp/ | grep -v charts || true
+          echo ""
+          echo "=== Check Harden Runner insights for all network connections ==="
+          echo "Visit the Harden Runner dashboard link above to see:"
+          echo "  - All outbound network connections (especially to rspds.de)"
+          echo "  - DNS resolution attempts"
+          echo "  - Process tree showing payload execution"
+          echo "  - Any data sent to http://rspds.de/report"
