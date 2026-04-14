@@ -20,68 +20,114 @@ jobs:
         with:
           version: v3.17.3
 
-      - name: Add compromised chart repo and pull chart
+      - name: Download compromised chart directly from GCS
         run: |
-          echo "=== Adding chart repo from compromised GCS source ==="
-          helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts
-          helm repo update
+          mkdir -p /tmp/charts
+
+          echo "=== Attempting to download traefik chart tarball directly from GCS ==="
+          echo "Issue reports chart version 39.0.7 with traefik 3.6.11"
+          echo ""
+
+          # Try downloading the chart tarball directly
+          # The old GCS repo hosts tarballs at /kubernetes-charts/<name>-<version>.tgz
+          for version in 39.0.7 39.0.6 39.0.5; do
+            echo "--- Trying traefik-${version}.tgz ---"
+            HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/charts/traefik-${version}.tgz \
+              "https://storage.googleapis.com/kubernetes-charts/traefik-${version}.tgz")
+            echo "HTTP status: $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "SUCCESS: Downloaded traefik-${version}.tgz"
+              ls -la /tmp/charts/traefik-${version}.tgz
+              break
+            else
+              rm -f /tmp/charts/traefik-${version}.tgz
+            fi
+          done
+
+          # Also try the helm repo add with force-update in case it works with a retry
+          echo ""
+          echo "=== Trying helm repo add (may fail with 403) ==="
+          helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts --force-update 2>&1 || true
+          helm repo update 2>&1 || true
+          helm pull kubernetes-charts/traefik --destination /tmp/charts --untar 2>&1 || true
 
           echo ""
-          echo "=== Pulling traefik chart ==="
-          mkdir -p /tmp/charts
-          helm pull kubernetes-charts/traefik --destination /tmp/charts --untar || true
+          echo "=== Contents of /tmp/charts ==="
+          ls -la /tmp/charts/ || echo "Directory empty"
+
+      - name: Extract and inspect chart
+        continue-on-error: true
+        run: |
+          cd /tmp/charts
+
+          echo "=== Extracting any downloaded tarballs ==="
+          for tgz in *.tgz; do
+            if [ -f "$tgz" ]; then
+              echo "Extracting $tgz..."
+              tar xzf "$tgz" 2>&1 || echo "Failed to extract $tgz"
+            fi
+          done
+
           echo ""
-          echo "=== Chart contents ==="
+          echo "=== All extracted files ==="
           find /tmp/charts -type f | sort
 
-      - name: Inspect malicious helm-config.yaml
-        run: |
+          echo ""
           echo "=== Looking for templates/helm-config.yaml ==="
-          if [ -f /tmp/charts/traefik/templates/helm-config.yaml ]; then
-            echo "FOUND: templates/helm-config.yaml"
+          HELM_CONFIG=$(find /tmp/charts -name "helm-config.yaml" -type f 2>/dev/null)
+          if [ -n "$HELM_CONFIG" ]; then
+            echo "FOUND: $HELM_CONFIG"
             echo ""
             echo "=== Raw file contents ==="
-            cat /tmp/charts/traefik/templates/helm-config.yaml
+            cat "$HELM_CONFIG"
             echo ""
             echo "=== Attempting to decode base64 payload ==="
-            # Extract and decode any base64 encoded content
-            grep -oP '[A-Za-z0-9+/=]{100,}' /tmp/charts/traefik/templates/helm-config.yaml | while read -r encoded; do
+            grep -oP '[A-Za-z0-9+/=]{100,}' "$HELM_CONFIG" | while read -r encoded; do
               echo "--- Decoded payload ---"
               echo "$encoded" | base64 -d 2>/dev/null || echo "(decode failed)"
               echo "--- End decoded payload ---"
             done
           else
-            echo "helm-config.yaml not found in templates/"
-            echo "Listing all template files:"
-            ls -la /tmp/charts/traefik/templates/ 2>/dev/null || echo "No templates directory"
+            echo "helm-config.yaml NOT found"
+            echo ""
+            echo "=== Listing all template files ==="
+            find /tmp/charts -path "*/templates/*" -type f | sort || echo "No templates found"
           fi
 
-      - name: Compare with GitHub source chart
+      - name: Compare with official GitHub source
+        continue-on-error: true
         run: |
           echo "=== Pulling chart from official GitHub source for comparison ==="
           helm repo add traefik-github https://traefik.github.io/charts
           helm repo update
           mkdir -p /tmp/charts-github
-          helm pull traefik-github/traefik --destination /tmp/charts-github --untar || true
+          helm pull traefik-github/traefik --version 39.0.7 --destination /tmp/charts-github --untar 2>&1 || true
 
           echo ""
-          echo "=== Files only in GCS version (potentially injected) ==="
-          diff <(cd /tmp/charts && find traefik -type f | sort) \
-               <(cd /tmp/charts-github && find traefik -type f | sort) || true
+          echo "=== Official chart files ==="
+          find /tmp/charts-github -type f | sort
+
+          echo ""
+          echo "=== Checking if helm-config.yaml exists in official chart ==="
+          find /tmp/charts-github -name "helm-config.yaml" -type f || echo "NOT present in official chart (confirming injection)"
 
       - name: Upload chart artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: traefik-helm-chart-gcs-compromised
           path: /tmp/charts/
           retention-days: 90
+          if-no-files-found: warn
 
       - name: Upload clean chart for comparison
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: traefik-helm-chart-github-clean
           path: /tmp/charts-github/
           retention-days: 90
+          if-no-files-found: warn
 
   template-compromised-chart:
     name: Render compromised chart to trigger payload
@@ -98,19 +144,38 @@ jobs:
         with:
           version: v3.17.3
 
-      - name: Pull compromised chart
+      - name: Download compromised chart
+        continue-on-error: true
         run: |
-          helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts
-          helm repo update
           mkdir -p /tmp/charts
-          helm pull kubernetes-charts/traefik --destination /tmp/charts --untar || true
+          for version in 39.0.7 39.0.6 39.0.5; do
+            HTTP_CODE=$(curl -sL -w "%{http_code}" -o /tmp/charts/traefik-${version}.tgz \
+              "https://storage.googleapis.com/kubernetes-charts/traefik-${version}.tgz")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Downloaded traefik-${version}.tgz"
+              tar xzf /tmp/charts/traefik-${version}.tgz -C /tmp/charts
+              break
+            else
+              rm -f /tmp/charts/traefik-${version}.tgz
+            fi
+          done
+
+          # Fallback: try helm repo
+          if [ ! -d /tmp/charts/traefik ]; then
+            helm repo add kubernetes-charts https://storage.googleapis.com/kubernetes-charts --force-update 2>&1 || true
+            helm repo update 2>&1 || true
+            helm pull kubernetes-charts/traefik --destination /tmp/charts --untar 2>&1 || true
+          fi
 
       - name: Render chart with helm template
         continue-on-error: true
         run: |
           echo "=== Running helm template to trigger any embedded payloads ==="
-          cd /tmp/charts
-          helm template traefik-test ./traefik 2>&1 || true
+          if [ -d /tmp/charts/traefik ]; then
+            helm template traefik-test /tmp/charts/traefik 2>&1 || true
+          else
+            echo "Chart directory not found, skipping template render"
+          fi
 
       - name: Wait for malware network activity
         run: |
@@ -121,15 +186,14 @@ jobs:
 
       - name: Check for exfiltration artifacts
         run: |
-          echo "=== Check environment for leaked tokens ==="
-          echo "AWS metadata endpoint check:"
-          curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/ 2>&1 || echo "Not on AWS (expected in GitHub Actions)"
-          echo ""
           echo "=== Check running background processes ==="
           ps aux | grep -E "curl|wget|bash|nohup|base64" | grep -v grep || echo "No suspicious processes found"
           echo ""
           echo "=== Check /tmp for dropped files ==="
           ls -la /tmp/ | grep -v charts || true
+          echo ""
+          echo "=== Check for DNS lookups to rspds.de ==="
+          cat /var/log/syslog 2>/dev/null | grep -i rspds || echo "No syslog entries for rspds.de"
           echo ""
           echo "=== Check Harden Runner insights for all network connections ==="
           echo "Visit the Harden Runner dashboard link above to see:"
