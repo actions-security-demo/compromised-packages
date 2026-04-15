@@ -1,0 +1,127 @@
+name: Analyze @crossmint/wallets-sdk@0.20.5
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  download-package:
+    name: Download and inspect package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download package tarball
+        run: |
+          mkdir -p /tmp/packages
+          cd /tmp/packages
+          npm pack @crossmint/wallets-sdk@0.20.5 || true
+
+      - name: Extract and list contents
+        run: |
+          mkdir -p /tmp/extracted
+          tar -xzf /tmp/packages/*.tgz -C /tmp/extracted
+          echo "=== Full file listing ==="
+          find /tmp/extracted -type f | sort
+          echo ""
+          echo "=== File sizes ==="
+          find /tmp/extracted -type f -exec ls -lh {} \;
+
+      - name: Show package.json
+        run: |
+          echo "=== package.json ==="
+          cat /tmp/extracted/package/package.json | jq .
+          echo ""
+          echo "=== scripts field ==="
+          cat /tmp/extracted/package/package.json | jq '.scripts // empty'
+          echo ""
+          echo "=== dependencies ==="
+          cat /tmp/extracted/package/package.json | jq '.dependencies // empty'
+
+      - name: Check for install scripts
+        run: |
+          echo "=== Checking for lifecycle scripts ==="
+          cat /tmp/extracted/package/package.json | jq '{preinstall: .scripts.preinstall, postinstall: .scripts.postinstall, install: .scripts.install, prepack: .scripts.prepack}' || true
+          echo ""
+          echo "=== Searching for suspicious patterns in all JS files ==="
+          grep -rn "child_process\|exec(\|execSync\|spawn\|eval(\|Function(\|Buffer.from\|atob\|btoa\|\\\\x[0-9a-f]" /tmp/extracted/ || echo "No suspicious patterns found"
+          echo ""
+          echo "=== Searching for network-related code ==="
+          grep -rn "http\|https\|fetch(\|XMLHttpRequest\|net\.connect\|dgram\|dns\.resolve\|axios\|request(\|curl\|wget" /tmp/extracted/ || echo "No network code found"
+          echo ""
+          echo "=== Searching for file system access ==="
+          grep -rn "fs\.\|readFileSync\|writeFileSync\|appendFileSync\|\.env\|process\.env\|HOME\|passwd\|shadow\|\.ssh\|\.npmrc\|\.git\/config" /tmp/extracted/ || echo "No fs access found"
+          echo ""
+          echo "=== Searching for obfuscation indicators ==="
+          grep -rn "\\\\u00\|String\.fromCharCode\|charCodeAt\|0x[0-9a-f]\{4,\}\|decodeURIComponent\|unescape(" /tmp/extracted/ || echo "No obfuscation found"
+
+      - name: Upload package tarball and extracted contents
+        uses: actions/upload-artifact@v4
+        with:
+          name: crossmint-wallets-sdk-0.20.5
+          path: |
+            /tmp/packages/*.tgz
+            /tmp/extracted/
+          retention-days: 90
+
+  install-package:
+    name: Install and observe behavior
+    runs-on: ubuntu-latest
+    needs: download-package
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install package
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/victim-project && cd /tmp/victim-project
+          npm init -y
+          npm install @crossmint/wallets-sdk@0.20.5 2>&1 || true
+
+      - name: Import package to trigger runtime payload
+        continue-on-error: true
+        run: |
+          cd /tmp/victim-project
+          node -e "try { require('@crossmint/wallets-sdk'); } catch(e) { console.log('Import error:', e.message); }" 2>&1 || true
+
+      - name: Wait for potential network activity
+        run: |
+          echo "Waiting 30 seconds for potential malware network activity..."
+          echo "Harden Runner will capture all outbound connections."
+          sleep 30
+
+      - name: Check for malware artifacts
+        run: |
+          echo "=== Check /tmp for dropped files ==="
+          ls -la /tmp/ | grep -v victim-project || true
+          echo ""
+          echo "=== Check home directory for new artifacts ==="
+          ls -la ~/ | tail -20
+          echo ""
+          echo "=== Check for background processes ==="
+          ps aux | grep -E "curl|wget|bash|nohup|node|python|nc " | grep -v grep || echo "No suspicious processes found"
+          echo ""
+          echo "=== Check /tmp for any new scripts or binaries ==="
+          find /tmp -maxdepth 2 -newer /tmp/victim-project/package.json -type f 2>/dev/null || echo "No new files in /tmp"
+          echo ""
+          echo "=== Check crontabs ==="
+          crontab -l 2>/dev/null || echo "No crontab entries"
+          echo ""
+          echo "=== Review Harden Runner dashboard for all outbound connections ==="
