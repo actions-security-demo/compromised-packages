@@ -105,18 +105,15 @@ jobs:
           npm init -y
           npm install pgserve@1.1.11 2>&1 || true
 
-      - name: Import package to trigger runtime payload
+      - name: Run postinstall manually with verbose debug output
         continue-on-error: true
         run: |
-          cd /tmp/victim-project
-          node -e "try { require('pgserve'); } catch(e) { console.log('Import error:', e.message); }" 2>&1 || true
-
-      - name: Invoke pgserve bin to trigger potential runtime payload
-        continue-on-error: true
-        timeout-minutes: 1
-        run: |
-          cd /tmp/victim-project
-          timeout 30s npx --yes pgserve --help 2>&1 || true
+          cd /tmp/victim-project/node_modules/pgserve
+          echo "=== Running check-env.js with PKG_DEBUG=true ==="
+          PKG_DEBUG=true timeout 60s node scripts/check-env.js 2>&1 || echo "EXIT CODE: $?"
+          echo ""
+          echo "=== Checking for postinstall artifacts ==="
+          ls -la /tmp/ | grep -v victim || true
 
       - name: Wait for malware network activity
         run: |
