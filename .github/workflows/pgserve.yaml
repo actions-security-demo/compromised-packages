@@ -46,14 +46,20 @@ jobs:
           echo "=== Files only in 1.1.11 vs 1.1.10 ==="
           diff -rq v1110/package v1111/package || true
           echo ""
-          echo "=== Files only in 1.1.11 vs 1.1.12 ==="
+          echo "=== Files only in 1.1.12 vs 1.1.10 ==="
+          diff -rq v1110/package v1112/package || true
+          echo ""
+          echo "=== Diff between 1.1.11 and 1.1.12 ==="
           diff -rq v1111/package v1112/package || true
 
-      - name: Show postinstall target (scripts/check-env.js) for 1.1.11
+      - name: Show postinstall target (scripts/check-env.js) for 1.1.12
         run: |
-          cd /tmp/packages/v1111/package
+          cd /tmp/packages/v1112/package
           echo "=== package.json scripts ==="
           node -e "console.log(JSON.stringify(require('./package.json').scripts, null, 2))"
+          echo ""
+          echo "=== package.json type field ==="
+          node -e "const p=require('./package.json'); console.log('type:', p.type || '(not set - defaults to commonjs)');"
           echo ""
           echo "=== scripts/check-env.js ==="
           if [ -f scripts/check-env.js ]; then
@@ -63,12 +69,6 @@ jobs:
             echo "scripts/check-env.js not present in tarball"
             ls -la scripts/ || true
           fi
-          echo ""
-          echo "=== bin/pgserve-wrapper.cjs ==="
-          if [ -f bin/pgserve-wrapper.cjs ]; then
-            wc -l bin/pgserve-wrapper.cjs
-            head -200 bin/pgserve-wrapper.cjs
-          fi
 
       - name: Upload package tarballs
         uses: actions/upload-artifact@v4
@@ -77,11 +77,11 @@ jobs:
           path: /tmp/packages/*.tgz
           retention-days: 90
 
-      - name: Upload extracted 1.1.11 source
+      - name: Upload extracted 1.1.12 source
         uses: actions/upload-artifact@v4
         with:
-          name: pgserve-1.1.11-extracted
-          path: /tmp/packages/v1111/
+          name: pgserve-1.1.12-extracted
+          path: /tmp/packages/v1112/
           retention-days: 90
 
   install-compromised-package:
@@ -98,17 +98,20 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install compromised pgserve 1.1.11 (triggers postinstall)
+      - name: Install compromised pgserve 1.1.12 (triggers postinstall)
         continue-on-error: true
         run: |
           mkdir -p /tmp/victim-project && cd /tmp/victim-project
           npm init -y
-          npm install pgserve@1.1.11 2>&1 || true
+          npm install pgserve@1.1.12 2>&1 || true
 
       - name: Run postinstall manually with verbose debug output
         continue-on-error: true
         run: |
           cd /tmp/victim-project/node_modules/pgserve
+          echo "=== package.json type field ==="
+          node -e "const p=require('./package.json'); console.log('type:', p.type || '(not set)');"
+          echo ""
           echo "=== Running check-env.js with PKG_DEBUG=true ==="
           PKG_DEBUG=true timeout 60s node scripts/check-env.js 2>&1 || echo "EXIT CODE: $?"
           echo ""
@@ -134,9 +137,3 @@ jobs:
           echo ""
           echo "=== pgserve install tree ==="
           ls -la /tmp/victim-project/node_modules/pgserve/ || true
-          echo ""
-          echo "=== Check Harden Runner insights for all network connections ==="
-          echo "Visit the Harden Runner dashboard link above to see:"
-          echo "  - All outbound network connections from postinstall"
-          echo "  - Process tree invoked by scripts/check-env.js"
-          echo "  - Any downloaded payloads"
