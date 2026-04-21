@@ -1,0 +1,145 @@
+name: Analyze pgserve Compromised Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  download-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download suspected and reference tarballs
+        run: |
+          mkdir -p /tmp/packages
+          cd /tmp/packages
+          npm pack pgserve@1.1.11 || true
+          npm pack pgserve@1.1.10 || true
+          npm pack pgserve@1.1.12 || true
+
+      - name: List package contents
+        run: |
+          cd /tmp/packages
+          for tgz in *.tgz; do
+            echo "=== $tgz ==="
+            tar -tzf "$tgz" | sort
+            echo ""
+          done
+
+      - name: Diff suspected vs prior clean version
+        run: |
+          cd /tmp/packages
+          mkdir -p v1110 v1111 v1112
+          tar -xzf pgserve-1.1.10.tgz -C v1110 || true
+          tar -xzf pgserve-1.1.11.tgz -C v1111 || true
+          tar -xzf pgserve-1.1.12.tgz -C v1112 || true
+          echo "=== Files only in 1.1.11 vs 1.1.10 ==="
+          diff -rq v1110/package v1111/package || true
+          echo ""
+          echo "=== Files only in 1.1.11 vs 1.1.12 ==="
+          diff -rq v1111/package v1112/package || true
+
+      - name: Show postinstall target (scripts/check-env.js) for 1.1.11
+        run: |
+          cd /tmp/packages/v1111/package
+          echo "=== package.json scripts ==="
+          node -e "console.log(JSON.stringify(require('./package.json').scripts, null, 2))"
+          echo ""
+          echo "=== scripts/check-env.js ==="
+          if [ -f scripts/check-env.js ]; then
+            wc -l scripts/check-env.js
+            cat scripts/check-env.js
+          else
+            echo "scripts/check-env.js not present in tarball"
+            ls -la scripts/ || true
+          fi
+          echo ""
+          echo "=== bin/pgserve-wrapper.cjs ==="
+          if [ -f bin/pgserve-wrapper.cjs ]; then
+            wc -l bin/pgserve-wrapper.cjs
+            head -200 bin/pgserve-wrapper.cjs
+          fi
+
+      - name: Upload package tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgserve-tarballs
+          path: /tmp/packages/*.tgz
+          retention-days: 90
+
+      - name: Upload extracted 1.1.11 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgserve-1.1.11-extracted
+          path: /tmp/packages/v1111/
+          retention-days: 90
+
+  install-compromised-package:
+    runs-on: ubuntu-latest
+    needs: download-package
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install compromised pgserve 1.1.11 (triggers postinstall)
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/victim-project && cd /tmp/victim-project
+          npm init -y
+          npm install pgserve@1.1.11 2>&1 || true
+
+      - name: Import package to trigger runtime payload
+        continue-on-error: true
+        run: |
+          cd /tmp/victim-project
+          node -e "try { require('pgserve'); } catch(e) { console.log('Import error:', e.message); }" 2>&1 || true
+
+      - name: Invoke pgserve bin to trigger potential runtime payload
+        continue-on-error: true
+        timeout-minutes: 1
+        run: |
+          cd /tmp/victim-project
+          timeout 30s npx --yes pgserve --help 2>&1 || true
+
+      - name: Wait for malware network activity
+        run: |
+          echo "Waiting 30 seconds for malware network activity..."
+          echo "Harden Runner will capture all outbound connections."
+          sleep 30
+
+      - name: Check for malware artifacts
+        run: |
+          echo "=== Dropped files in /tmp ==="
+          ls -la /tmp/ | grep -v victim-project || true
+          echo ""
+          echo "=== Home directory ==="
+          ls -la ~/ | tail -30
+          echo ""
+          echo "=== Suspicious background processes ==="
+          ps aux | grep -E "curl|wget|bash|nohup|python|node" | grep -v grep || echo "None"
+          echo ""
+          echo "=== pgserve install tree ==="
+          ls -la /tmp/victim-project/node_modules/pgserve/ || true
+          echo ""
+          echo "=== Check Harden Runner insights for all network connections ==="
+          echo "Visit the Harden Runner dashboard link above to see:"
+          echo "  - All outbound network connections from postinstall"
+          echo "  - Process tree invoked by scripts/check-env.js"
+          echo "  - Any downloaded payloads"
