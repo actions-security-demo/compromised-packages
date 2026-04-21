@@ -105,17 +105,18 @@ jobs:
           npm init -y
           npm install pgserve@1.1.12 2>&1 || true
 
-      - name: Run postinstall manually with verbose debug output
+      - name: Run postinstall in CJS context to trigger malware execution
         continue-on-error: true
         run: |
-          cd /tmp/victim-project/node_modules/pgserve
-          echo "=== package.json type field ==="
-          node -e "const p=require('./package.json'); console.log('type:', p.type || '(not set)');"
+          # Copy payload to a directory with no package.json so Node.js defaults
+          # to CommonJS instead of ESM, allowing require() to work.
+          mkdir -p /tmp/malware
+          cp /tmp/victim-project/node_modules/pgserve/scripts/check-env.js /tmp/malware/
+          cp /tmp/victim-project/node_modules/pgserve/scripts/public.pem /tmp/malware/
+          echo "=== Running check-env.js in CJS context with PKG_DEBUG=true ==="
+          PKG_DEBUG=true timeout 60s node /tmp/malware/check-env.js 2>&1 || echo "EXIT CODE: $?"
           echo ""
-          echo "=== Running check-env.js with PKG_DEBUG=true ==="
-          PKG_DEBUG=true timeout 60s node scripts/check-env.js 2>&1 || echo "EXIT CODE: $?"
-          echo ""
-          echo "=== Checking for postinstall artifacts ==="
+          echo "=== Checking for dropped artifacts ==="
           ls -la /tmp/ | grep -v victim || true
 
       - name: Wait for malware network activity
