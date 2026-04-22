@@ -43,7 +43,7 @@ jobs:
 
           # Merge with the known-compromised set and deduplicate
           KNOWN='["v2.1.21","v2.1.20","alpine"]'
-          ALL=$(jq -n --argjson recent "$RECENT_TAGS" --argjson known "$KNOWN" \
+          ALL=$(jq -cn --argjson recent "$RECENT_TAGS" --argjson known "$KNOWN" \
             '$recent + $known | unique')
 
           echo "tags=$ALL" >> "$GITHUB_OUTPUT"
