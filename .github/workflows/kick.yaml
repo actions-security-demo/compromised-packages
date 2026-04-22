@@ -1,0 +1,225 @@
+name: Analyze Compromised KICS Docker Images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-kics-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Install tcpdump and jq
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tcpdump jq
+
+      # Query Docker Hub API to find tags pushed in the last 10 hours.
+      # The known-compromised tags (v2.1.20, v2.1.21, alpine) are always
+      # included as a fallback in case they were pushed outside that window
+      # or have already been taken down.
+      - name: Fetch recently pushed KICS tags (last 10 hours)
+        id: fetch-tags
+        run: |
+          CUTOFF=$(date -u -d '10 hours ago' +%s)
+          echo "Cutoff: $(date -u -d @$CUTOFF)"
+
+          API_RESP=$(curl -sf \
+            "https://hub.docker.com/v2/repositories/checkmarx/kics/tags?page_size=100&ordering=last_updated" \
+            || echo '{"results":[]}')
+
+          RECENT_TAGS=$(echo "$API_RESP" | jq -r \
+            --argjson cutoff "$CUTOFF" \
+            '[.results[]
+              | select((.tag_last_pushed | fromdateiso8601) >= $cutoff)
+              | .name]
+            | @json')
+
+          # Merge with the known-compromised set and deduplicate
+          KNOWN='["v2.1.21","v2.1.20","alpine"]'
+          ALL=$(jq -n --argjson recent "$RECENT_TAGS" --argjson known "$KNOWN" \
+            '$recent + $known | unique')
+
+          echo "tags=$ALL" >> "$GITHUB_OUTPUT"
+          echo "Tags to analyze: $ALL"
+
+      # Create a small dummy Terraform + Kubernetes file so the KICS binary
+      # has something to scan. This maximizes the chance that any exfiltration
+      # logic (which is triggered post-scan per the Socket report) fires.
+      - name: Create dummy IaC files for scanning
+        run: |
+          mkdir -p /tmp/iac-scan
+
+          cat > /tmp/iac-scan/main.tf <<'EOF'
+          resource "aws_s3_bucket" "demo" {
+            bucket = "demo-bucket"
+          }
+          resource "aws_iam_user" "demo" {
+            name = "demo-user"
+          }
+          EOF
+
+          cat > /tmp/iac-scan/deployment.yaml <<'EOF'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: demo-app
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: demo
+            template:
+              metadata:
+                labels:
+                  app: demo
+              spec:
+                containers:
+                - name: app
+                  image: nginx:latest
+          EOF
+
+      # Capture all network traffic on every interface for the duration of
+      # the container runs. The pcap is uploaded as an artifact for deeper
+      # analysis in Wireshark afterwards.
+      - name: Start tcpdump (all interfaces)
+        run: |
+          sudo tcpdump -i any -nn -s 0 -w /tmp/kics-network.pcap &
+          echo $! | sudo tee /tmp/tcpdump.pid
+          sleep 2
+          echo "tcpdump started (PID $(cat /tmp/tcpdump.pid))"
+
+      - name: Pull and run each image
+        run: |
+          TAGS='${{ steps.fetch-tags.outputs.tags }}'
+          echo "Images to analyze: $TAGS"
+
+          echo "$TAGS" | jq -r '.[]' | while read -r TAG; do
+            IMAGE="checkmarx/kics:${TAG}"
+            echo ""
+            echo "============================================================"
+            echo " IMAGE: $IMAGE"
+            echo "============================================================"
+
+            echo "--- Pull ---"
+            if ! docker pull "$IMAGE" 2>&1; then
+              echo "[SKIP] Pull failed for $IMAGE — image may have been removed."
+              continue
+            fi
+
+            echo ""
+            echo "--- Digest / Manifest ---"
+            docker inspect "$IMAGE" \
+              --format='ID:      {{.Id}}
+Created: {{.Created}}
+Digests: {{range .RepoDigests}}{{.}} {{end}}'
+
+            echo ""
+            echo "--- Entrypoint / Cmd ---"
+            docker inspect "$IMAGE" \
+              --format='Entrypoint: {{.Config.Entrypoint}}
+Cmd:        {{.Config.Cmd}}'
+
+            echo ""
+            echo "--- Environment variables (may reveal C2 config) ---"
+            docker inspect "$IMAGE" \
+              --format='{{range .Config.Env}}{{.}}{{"\n"}}{{end}}'
+
+            echo ""
+            echo "--- Run scan (60 s hard timeout) ---"
+            # Run as nobody, read-only rootfs except /tmp, no new privileges.
+            # Network is kept enabled intentionally so egress calls fire.
+            timeout 60 docker run --rm \
+              --user nobody \
+              --security-opt no-new-privileges \
+              --read-only \
+              --tmpfs /tmp \
+              -v /tmp/iac-scan:/scandir:ro \
+              "$IMAGE" scan \
+                --path /scandir \
+                --output-path /tmp \
+                --report-formats json \
+                --no-progress 2>&1 || true
+
+            echo ""
+            echo "--- Done: $IMAGE ---"
+          done
+
+      - name: Stop tcpdump
+        if: always()
+        run: |
+          PID=$(cat /tmp/tcpdump.pid 2>/dev/null || true)
+          if [ -n "$PID" ]; then
+            sudo kill "$PID" 2>/dev/null || true
+          fi
+          sleep 3
+
+      # ------------------------------------------------------------------ #
+      # Network analysis section
+      # ------------------------------------------------------------------ #
+
+      - name: "Analysis: unique host:port connections"
+        if: always()
+        run: |
+          echo "============================================================"
+          echo " Unique non-local connections observed"
+          echo "============================================================"
+          sudo tcpdump -nn -r /tmp/kics-network.pcap \
+            'not (dst net 127.0.0.0/8 or dst net 10.0.0.0/8 or
+                  dst net 172.16.0.0/12 or dst net 192.168.0.0/16) and
+             not port 22' 2>/dev/null \
+          | awk '{print $3, "->", $5}' \
+          | sed 's/\(\.[0-9]*\)$//' \
+          | sort -u \
+          || echo "(no output)"
+
+      - name: "Analysis: DNS queries"
+        if: always()
+        run: |
+          echo "============================================================"
+          echo " DNS queries (port 53)"
+          echo "============================================================"
+          sudo tcpdump -nn -r /tmp/kics-network.pcap 'port 53' 2>/dev/null \
+          | head -200 \
+          || echo "(no DNS queries captured)"
+
+      - name: "Analysis: HTTP/S connections (ports 80 & 443)"
+        if: always()
+        run: |
+          echo "============================================================"
+          echo " HTTP/S connections"
+          echo "============================================================"
+          sudo tcpdump -nn -r /tmp/kics-network.pcap 'port 80 or port 443' 2>/dev/null \
+          | awk '{print $3, "->", $5}' \
+          | sed 's/\(\.[0-9]*\)$//' \
+          | sort -u \
+          || echo "(no HTTP/S traffic)"
+
+      - name: "Analysis: unexpected high-port / non-standard connections"
+        if: always()
+        run: |
+          echo "============================================================"
+          echo " Non-standard port connections (not 22/53/80/443)"
+          echo "============================================================"
+          sudo tcpdump -nn -r /tmp/kics-network.pcap \
+            'not port 22 and not port 53 and not port 80 and not port 443' \
+            2>/dev/null \
+          | awk '{print $3, "->", $5}' \
+          | sed 's/\(\.[0-9]*\)$//' \
+          | sort -u \
+          || echo "(none)"
+
+      # Upload the full pcap for Wireshark analysis
+      - name: Upload pcap artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kics-network-capture
+          path: /tmp/kics-network.pcap
+          retention-days: 7
