@@ -12,12 +12,49 @@ on:
           - "2.6.1"
           - "2.6.2"
         default: "2.6.0"
+      use_local_tarball:
+        description: "Install from local xinference-2.6.2.tar.gz instead of PyPI"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  analyze-local-tarball:
+    if: ${{ inputs.use_local_tarball == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install xinference from local tarball (no deps)
+        continue-on-error: true
+        run: |
+          pip install xinference-2.6.2.tar.gz 2>&1 || true
+
+      - name: Trigger malicious __init__.py by importing xinference
+        continue-on-error: true
+        run: |
+          python3 -c "
+          import sys, traceback
+          print('=== Importing xinference (local tarball) to trigger __init__.py payload ===')
+          try:
+              import xinference
+              print('Import succeeded')
+          except Exception as e:
+              print(f'Import raised (expected — missing deps): {type(e).__name__}: {e}')
+              traceback.print_exc()
+          " || true
+
   analyze-xinference:
+    if: ${{ inputs.use_local_tarball != true }}
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
