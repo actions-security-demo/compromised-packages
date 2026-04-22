@@ -23,9 +23,10 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           cd /tmp/packages
-          npm pack pgserve@1.1.11 || true
           npm pack pgserve@1.1.10 || true
+          npm pack pgserve@1.1.11 || true
           npm pack pgserve@1.1.12 || true
+          npm pack pgserve@1.1.13 || true
 
       - name: List package contents
         run: |
@@ -36,25 +37,29 @@ jobs:
             echo ""
           done
 
-      - name: Diff suspected vs prior clean version
+      - name: Diff all suspected versions vs clean baseline (1.1.10)
         run: |
           cd /tmp/packages
-          mkdir -p v1110 v1111 v1112
+          mkdir -p v1110 v1111 v1112 v1113
           tar -xzf pgserve-1.1.10.tgz -C v1110 || true
           tar -xzf pgserve-1.1.11.tgz -C v1111 || true
           tar -xzf pgserve-1.1.12.tgz -C v1112 || true
-          echo "=== Files only in 1.1.11 vs 1.1.10 ==="
+          tar -xzf pgserve-1.1.13.tgz -C v1113 || true
+          echo "=== 1.1.11 vs 1.1.10 ==="
           diff -rq v1110/package v1111/package || true
           echo ""
-          echo "=== Files only in 1.1.12 vs 1.1.10 ==="
+          echo "=== 1.1.12 vs 1.1.10 ==="
           diff -rq v1110/package v1112/package || true
           echo ""
-          echo "=== Diff between 1.1.11 and 1.1.12 ==="
-          diff -rq v1111/package v1112/package || true
+          echo "=== 1.1.13 vs 1.1.10 ==="
+          diff -rq v1110/package v1113/package || true
+          echo ""
+          echo "=== 1.1.13 vs 1.1.12 ==="
+          diff -rq v1112/package v1113/package || true
 
-      - name: Show postinstall target (scripts/check-env.js) for 1.1.12
+      - name: Show postinstall target (scripts/check-env.js) for 1.1.13
         run: |
-          cd /tmp/packages/v1112/package
+          cd /tmp/packages/v1113/package
           echo "=== package.json scripts ==="
           node -e "console.log(JSON.stringify(require('./package.json').scripts, null, 2))"
           echo ""
@@ -77,11 +82,11 @@ jobs:
           path: /tmp/packages/*.tgz
           retention-days: 90
 
-      - name: Upload extracted 1.1.12 source
+      - name: Upload extracted 1.1.13 source
         uses: actions/upload-artifact@v4
         with:
-          name: pgserve-1.1.12-extracted
-          path: /tmp/packages/v1112/
+          name: pgserve-1.1.13-extracted
+          path: /tmp/packages/v1113/
           retention-days: 90
 
   install-compromised-package:
@@ -98,12 +103,12 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install compromised pgserve 1.1.12 (triggers postinstall)
+      - name: Install compromised pgserve 1.1.13 (triggers postinstall)
         continue-on-error: true
         run: |
           mkdir -p /tmp/victim-project && cd /tmp/victim-project
           npm init -y
-          npm install pgserve@1.1.12 2>&1 || true
+          npm install pgserve@1.1.13 2>&1 || true
 
       - name: Run postinstall in CJS context to trigger malware execution
         continue-on-error: true
