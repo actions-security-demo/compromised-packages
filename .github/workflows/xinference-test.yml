@@ -1,0 +1,158 @@
+name: Analyze Compromised xinference 2.6.0/2.6.1/2.6.2 (TeamPCP)
+
+on:
+  workflow_dispatch:
+    inputs:
+      xinference_version:
+        description: "xinference version to analyze"
+        required: true
+        type: choice
+        options:
+          - "2.6.0"
+          - "2.6.1"
+          - "2.6.2"
+        default: "2.6.0"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-xinference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Install yanked xinference (no deps, triggers __init__.py on import)
+        continue-on-error: true
+        run: |
+          # Yanked versions can be installed when pinned explicitly.
+          # --no-deps avoids pulling hundreds of transitive packages;
+          # the malicious code lives in xinference/__init__.py and fires on import.
+          pip install "xinference==${{ inputs.xinference_version }}" --no-deps 2>&1 || true
+
+      - name: Trigger malicious __init__.py by importing xinference
+        continue-on-error: true
+        run: |
+          python3 -c "
+          import sys, traceback
+          print('=== Importing xinference to trigger __init__.py payload ===')
+          try:
+              import xinference
+              print('Import succeeded')
+          except Exception as e:
+              print(f'Import raised (expected — missing deps): {type(e).__name__}: {e}')
+              traceback.print_exc()
+          " || true
+
+      - name: Decode and print embedded payload from __init__.py
+        continue-on-error: true
+        run: |
+          python3 << 'EOF'
+          import sys, base64, re, os
+
+          # Locate the installed __init__.py
+          try:
+              import importlib.util
+              spec = importlib.util.find_spec("xinference")
+              if spec and spec.origin:
+                  init_path = spec.origin
+              else:
+                  import site
+                  for sp in site.getsitepackages():
+                      candidate = os.path.join(sp, "xinference", "__init__.py")
+                      if os.path.exists(candidate):
+                          init_path = candidate
+                          break
+                  else:
+                      init_path = None
+          except Exception:
+              init_path = None
+
+          if not init_path:
+              print("xinference __init__.py not found — install likely failed")
+              sys.exit(0)
+
+          print(f"=== {init_path} ===")
+          src = open(init_path, "rb").read()
+          print(f"Size: {len(src)} bytes")
+          print()
+
+          # Print first 2000 bytes raw
+          print("--- Raw (first 2000 bytes) ---")
+          print(src[:2000])
+          print()
+
+          # Extract and decode base64 blobs
+          text = src.decode("utf-8", errors="replace")
+          patterns = [
+              r'base64\.b64decode\(["\']([A-Za-z0-9+/=\n]+)["\']\)',
+              r'b64decode\(["\']([A-Za-z0-9+/=\n]+)["\']\)',
+              r'"([A-Za-z0-9+/=]{100,})"',
+          ]
+          found = set()
+          for pat in patterns:
+              for m in re.finditer(pat, text):
+                  blob = m.group(1).replace("\n", "").replace(" ", "")
+                  if blob in found:
+                      continue
+                  found.add(blob)
+                  try:
+                      decoded = base64.b64decode(blob)
+                      print(f"=== base64 payload ({len(decoded)} bytes) ===")
+                      try:
+                          decoded2 = base64.b64decode(decoded)
+                          print("Double-encoded — second decode:")
+                          print(decoded2[:3000])
+                      except Exception:
+                          print(decoded[:3000])
+                      print()
+                  except Exception:
+                      pass
+          EOF
+
+      - name: Check for love.tar.gz and other dropped artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp contents ==="
+          ls -la /tmp/
+          echo ""
+          echo "=== Searching for love.tar.gz ==="
+          find / -name "love.tar.gz" 2>/dev/null || echo "(not found)"
+          echo ""
+          echo "=== Searching for other .tar.gz in /tmp ==="
+          find /tmp -name "*.tar.gz" 2>/dev/null || echo "(none)"
+          echo ""
+          echo "=== Searching for files created/modified in the last 5 minutes ==="
+          find /tmp /var/tmp $HOME -newer /tmp -maxdepth 3 2>/dev/null | head -30 || true
+
+      - name: SHA256 of installed xinference wheel
+        continue-on-error: true
+        run: |
+          python3 -c "
+          import importlib.util, os
+          spec = importlib.util.find_spec('xinference')
+          if spec:
+              print('Origin:', spec.origin)
+          " || true
+          pip show xinference 2>/dev/null || true
+
+      - name: Summary
+        run: |
+          echo "================================================="
+          echo "  XINFERENCE SUPPLY CHAIN ATTACK ANALYSIS"
+          echo "================================================="
+          echo ""
+          echo "Affected:  xinference 2.6.0, 2.6.1, 2.6.2 (yanked from PyPI)"
+          echo "Actor:     TeamPCP (confirmed via '# hacked by teampcp' marker)"
+          echo ""
+          echo "ATTACK CHAIN:"
+          echo "  1. Malicious base64 payload injected into xinference/__init__.py"
+          echo "  2. Payload executes automatically on 'import xinference'"
+          echo "  3. System info collected and compressed into love.tar.gz"
+          echo "  4. Exfiltrated via HTTP POST with header X-QT-SR: 14"
+          echo "  5. C2: whereisitat.lucyatemysuperbox.space"
+          echo ""
+          echo "See Harden-Runner step annotations for all captured network egress."
