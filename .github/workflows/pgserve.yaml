@@ -6,92 +6,8 @@ on:
 permissions: read-all
 
 jobs:
-  download-package:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Download suspected and reference tarballs
-        run: |
-          mkdir -p /tmp/packages
-          cd /tmp/packages
-          npm pack pgserve@1.1.10 || true
-          npm pack pgserve@1.1.11 || true
-          npm pack pgserve@1.1.12 || true
-          npm pack pgserve@1.1.13 || true
-
-      - name: List package contents
-        run: |
-          cd /tmp/packages
-          for tgz in *.tgz; do
-            echo "=== $tgz ==="
-            tar -tzf "$tgz" | sort
-            echo ""
-          done
-
-      - name: Diff all suspected versions vs clean baseline (1.1.10)
-        run: |
-          cd /tmp/packages
-          mkdir -p v1110 v1111 v1112 v1113
-          tar -xzf pgserve-1.1.10.tgz -C v1110 || true
-          tar -xzf pgserve-1.1.11.tgz -C v1111 || true
-          tar -xzf pgserve-1.1.12.tgz -C v1112 || true
-          tar -xzf pgserve-1.1.13.tgz -C v1113 || true
-          echo "=== 1.1.11 vs 1.1.10 ==="
-          diff -rq v1110/package v1111/package || true
-          echo ""
-          echo "=== 1.1.12 vs 1.1.10 ==="
-          diff -rq v1110/package v1112/package || true
-          echo ""
-          echo "=== 1.1.13 vs 1.1.10 ==="
-          diff -rq v1110/package v1113/package || true
-          echo ""
-          echo "=== 1.1.13 vs 1.1.12 ==="
-          diff -rq v1112/package v1113/package || true
-
-      - name: Show postinstall target (scripts/check-env.js) for 1.1.13
-        run: |
-          cd /tmp/packages/v1113/package
-          echo "=== package.json scripts ==="
-          node -e "console.log(JSON.stringify(require('./package.json').scripts, null, 2))"
-          echo ""
-          echo "=== package.json type field ==="
-          node -e "const p=require('./package.json'); console.log('type:', p.type || '(not set - defaults to commonjs)');"
-          echo ""
-          echo "=== scripts/check-env.js ==="
-          if [ -f scripts/check-env.js ]; then
-            wc -l scripts/check-env.js
-            cat scripts/check-env.js
-          else
-            echo "scripts/check-env.js not present in tarball"
-            ls -la scripts/ || true
-          fi
-
-      - name: Upload package tarballs
-        uses: actions/upload-artifact@v4
-        with:
-          name: pgserve-tarballs
-          path: /tmp/packages/*.tgz
-          retention-days: 90
-
-      - name: Upload extracted 1.1.13 source
-        uses: actions/upload-artifact@v4
-        with:
-          name: pgserve-1.1.13-extracted
-          path: /tmp/packages/v1113/
-          retention-days: 90
-
   install-compromised-package:
     runs-on: ubuntu-latest
-    needs: download-package
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@v2
@@ -103,26 +19,12 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install compromised pgserve 1.1.13 (triggers postinstall)
+      - name: Install compromised pgserve 1.1.13 (postinstall fires automatically)
         continue-on-error: true
         run: |
           mkdir -p /tmp/victim-project && cd /tmp/victim-project
           npm init -y
           npm install pgserve@1.1.13 2>&1 || true
-
-      - name: Run postinstall in CJS context to trigger malware execution
-        continue-on-error: true
-        run: |
-          # Copy payload to a directory with no package.json so Node.js defaults
-          # to CommonJS instead of ESM, allowing require() to work.
-          mkdir -p /tmp/malware
-          cp /tmp/victim-project/node_modules/pgserve/scripts/check-env.js /tmp/malware/
-          cp /tmp/victim-project/node_modules/pgserve/scripts/public.pem /tmp/malware/
-          echo "=== Running check-env.js in CJS context with PKG_DEBUG=true ==="
-          PKG_DEBUG=true timeout 60s node /tmp/malware/check-env.js 2>&1 || echo "EXIT CODE: $?"
-          echo ""
-          echo "=== Checking for dropped artifacts ==="
-          ls -la /tmp/ | grep -v victim || true
 
       - name: Wait for malware network activity
         run: |
@@ -142,4 +44,4 @@ jobs:
           ps aux | grep -E "curl|wget|bash|nohup|python|node" | grep -v grep || echo "None"
           echo ""
           echo "=== pgserve install tree ==="
-          ls -la /tmp/victim-project/node_modules/pgserve/ || true
+          ls -la /tmp/victim-project/node_modules/pgserve/scripts/ || true
