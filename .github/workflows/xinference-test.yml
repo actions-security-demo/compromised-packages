@@ -57,6 +57,8 @@ jobs:
               print(f'Import raised: {type(e).__name__}: {e}')
               traceback.print_exc()
           " || true
+  
+      - run: sleep 2m
 
   analyze-xinference:
     if: ${{ inputs.use_local_tarball != true }}
