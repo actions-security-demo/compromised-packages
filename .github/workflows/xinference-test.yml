@@ -37,7 +37,7 @@ jobs:
       - name: Install xinference from local tarball (no deps)
         continue-on-error: true
         run: |
-          pip install xinference-2.6.2.tar.gz 2>&1 || true
+          pip install xinference-2.6.2.tar.gz --no-deps 2>&1 || true
 
       - name: Trigger malicious __init__.py by importing xinference
         continue-on-error: true
