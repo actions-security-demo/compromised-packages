@@ -115,16 +115,14 @@ jobs:
 
             echo ""
             echo "--- Digest / Manifest ---"
-            docker inspect "$IMAGE" \
-              --format='ID:      {{.Id}}
-Created: {{.Created}}
-Digests: {{range .RepoDigests}}{{.}} {{end}}'
+            echo "ID:      $(docker inspect "$IMAGE" --format='{{.Id}}')"
+            echo "Created: $(docker inspect "$IMAGE" --format='{{.Created}}')"
+            echo "Digests: $(docker inspect "$IMAGE" --format='{{range .RepoDigests}}{{.}} {{end}}')"
 
             echo ""
             echo "--- Entrypoint / Cmd ---"
-            docker inspect "$IMAGE" \
-              --format='Entrypoint: {{.Config.Entrypoint}}
-Cmd:        {{.Config.Cmd}}'
+            echo "Entrypoint: $(docker inspect "$IMAGE" --format='{{.Config.Entrypoint}}')"
+            echo "Cmd:        $(docker inspect "$IMAGE" --format='{{.Config.Cmd}}')"
 
             echo ""
             echo "--- Environment variables (may reveal C2 config) ---"
@@ -170,10 +168,7 @@ Cmd:        {{.Config.Cmd}}'
           echo "============================================================"
           echo " Unique non-local connections observed"
           echo "============================================================"
-          sudo tcpdump -nn -r /tmp/kics-network.pcap \
-            'not (dst net 127.0.0.0/8 or dst net 10.0.0.0/8 or
-                  dst net 172.16.0.0/12 or dst net 192.168.0.0/16) and
-             not port 22' 2>/dev/null \
+          sudo tcpdump -nn -r /tmp/kics-network.pcap 'not (dst net 127.0.0.0/8 or dst net 10.0.0.0/8 or dst net 172.16.0.0/12 or dst net 192.168.0.0/16) and not port 22' 2>/dev/null \
           | awk '{print $3, "->", $5}' \
           | sed 's/\(\.[0-9]*\)$//' \
           | sort -u \
@@ -207,9 +202,7 @@ Cmd:        {{.Config.Cmd}}'
           echo "============================================================"
           echo " Non-standard port connections (not 22/53/80/443)"
           echo "============================================================"
-          sudo tcpdump -nn -r /tmp/kics-network.pcap \
-            'not port 22 and not port 53 and not port 80 and not port 443' \
-            2>/dev/null \
+          sudo tcpdump -nn -r /tmp/kics-network.pcap 'not port 22 and not port 53 and not port 80 and not port 443' 2>/dev/null \
           | awk '{print $3, "->", $5}' \
           | sed 's/\(\.[0-9]*\)$//' \
           | sort -u \
