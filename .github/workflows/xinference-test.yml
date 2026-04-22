@@ -39,6 +39,11 @@ jobs:
         run: |
           pip install xinference-2.6.2.tar.gz --no-deps 2>&1 || true
 
+      - name: Install xoscar
+        continue-on-error: true
+        run: |
+          pip install xoscar 2>&1 || true
+
       - name: Trigger malicious __init__.py by importing xinference
         continue-on-error: true
         run: |
@@ -49,7 +54,7 @@ jobs:
               import xinference
               print('Import succeeded')
           except Exception as e:
-              print(f'Import raised (expected — missing deps): {type(e).__name__}: {e}')
+              print(f'Import raised: {type(e).__name__}: {e}')
               traceback.print_exc()
           " || true
 
