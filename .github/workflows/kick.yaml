@@ -37,7 +37,7 @@ jobs:
           RECENT_TAGS=$(echo "$API_RESP" | jq -r \
             --argjson cutoff "$CUTOFF" \
             '[.results[]
-              | select((.tag_last_pushed | fromdateiso8601) >= $cutoff)
+              | select((.tag_last_pushed | gsub("\\.[0-9]+Z$";"Z") | fromdateiso8601) >= $cutoff)
               | .name]
             | @json')
 
