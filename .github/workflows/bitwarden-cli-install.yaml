@@ -2,16 +2,53 @@ name: Install @bitwarden/cli Compromised Package
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner OS to install on"
+        required: true
+        type: choice
+        options:
+          - ubuntu
+          - windows
+          - both
+        default: "both"
 
 permissions: read-all
 
 jobs:
   install-bitwarden-cli:
+    if: inputs.runner == 'ubuntu' || inputs.runner == 'both'
     runs-on: ubuntu-latest
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install @bitwarden/cli 2026.4.0
+        continue-on-error: true
+        run: |
+          npm init -y
+          npm install @bitwarden/cli@2026.4.0
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          node -e "const pkg = require('./node_modules/@bitwarden/cli/package.json'); console.log('@bitwarden/cli version:', pkg.version);"
+
+  install-bitwarden-cli-win:
+    if: inputs.runner == 'windows' || inputs.runner == 'both'
+    runs-on: windows-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
 
