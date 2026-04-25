@@ -1,0 +1,30 @@
+name: Pull elementary-data Docker Image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pull-elementary-docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Pull elementary-data 0.23.3 Docker image
+        run: docker pull ghcr.io/elementary-data/elementary:0.23.3
+
+      - name: Inspect image
+        run: |
+          docker inspect ghcr.io/elementary-data/elementary:0.23.3
+
+      - name: Run container and check for suspicious files
+        run: |
+          docker run --rm ghcr.io/elementary-data/elementary:0.23.3 ls -la /tmp || true
+
+      - run: sleep 1m
