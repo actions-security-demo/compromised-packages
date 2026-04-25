@@ -30,8 +30,8 @@ jobs:
         run: |
           python3 -c "import elementary; print('elementary version:', elementary.__version__)"
 
-      - name: Check for suspicious files
+      - name: Let the payload execute
         run: |
-          ls -la /tmp
+          sleep 2m
 
 
