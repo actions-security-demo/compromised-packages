@@ -1,0 +1,33 @@
+name: Decode elementary-data Payload
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  decode-elementary-payload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run elementary payload
+        continue-on-error: true
+        run: |
+          python3 elemetary-payload.py
+
+      - name: Read dropped file
+        run: |
+          cat .trinny-security-update
