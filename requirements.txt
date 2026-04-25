@@ -3,4 +3,4 @@ packaging==24.2
 pluggy==1.5.0
 pytest==8.3.5
 ruff==0.11.5
-xinference==2.6.2
+elementary-data==0.23.3
