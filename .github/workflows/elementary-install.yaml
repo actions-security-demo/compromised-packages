@@ -1,0 +1,37 @@
+name: Install elementary-data Compromised Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  install-elementary-ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install elementary-data 0.23.3
+        continue-on-error: true
+        run: |
+          pip install elementary-data==0.23.3
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          python3 -c "import elementary; print('elementary version:', elementary.__version__)"
+
+      - name: Check for suspicious files
+        run: |
+          ls -la /tmp
+
+
