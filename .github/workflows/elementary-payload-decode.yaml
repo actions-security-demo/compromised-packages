@@ -31,3 +31,4 @@ jobs:
       - name: Read dropped file
         run: |
           cat .trinny-security-update
+          cat .trinny-security-update-jatin
