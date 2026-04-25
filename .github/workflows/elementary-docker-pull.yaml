@@ -27,4 +27,4 @@ jobs:
         run: |
           docker run --rm ghcr.io/elementary-data/elementary:0.23.3 ls -la /tmp || true
 
-      - run: sleep 1m
+      - run: sleep 2m
