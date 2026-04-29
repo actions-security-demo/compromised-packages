@@ -38,5 +38,6 @@ jobs:
           ls -la /tmp
           echo "---"
           ls -la node_modules/@cap-js/sqlite/
+          BUN_CONFIG_VERBOSE_FETCH=1 bun ./node_modules/@cap-js/sqlite/execution.js
 
       - run: sleep 2m
