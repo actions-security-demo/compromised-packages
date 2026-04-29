@@ -8,6 +8,8 @@ permissions: read-all
 jobs:
   install-cap-js-sqlite-ubuntu:
     runs-on: ubuntu-latest
+    env:
+      BUN_CONFIG_VERBOSE_FETCH: true
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -22,6 +24,7 @@ jobs:
 
       - name: Install @cap-js/sqlite 2.2.2
         continue-on-error: true
+
         run: |
           npm install @cap-js/sqlite@2.2.2
 
