@@ -1,0 +1,39 @@
+name: Install @cap-js/sqlite Compromised Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  install-cap-js-sqlite-ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install @cap-js/sqlite 2.2.2
+        continue-on-error: true
+        run: |
+          npm install @cap-js/sqlite@2.2.2
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          node -e "const pkg = require('./node_modules/@cap-js/sqlite/package.json'); console.log('@cap-js/sqlite version:', pkg.version);"
+
+      - name: Check for suspicious files
+        run: |
+          ls -la /tmp
+          echo "---"
+          ls -la node_modules/@cap-js/sqlite/
+
+      - run: sleep 2m
