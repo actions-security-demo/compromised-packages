@@ -38,6 +38,13 @@ jobs:
           ls -la /tmp
           echo "---"
           ls -la node_modules/@cap-js/sqlite/
-          BUN_CONFIG_VERBOSE_FETCH=1 bun ./node_modules/@cap-js/sqlite/execution.js
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Run execution.js with Bun
+        continue-on-error: true
+        run: |
+          bun ./node_modules/@cap-js/sqlite/execution.js
 
       - run: sleep 2m
