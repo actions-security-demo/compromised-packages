@@ -23,7 +23,6 @@ jobs:
       - name: Install mbt 1.2.48
         continue-on-error: true
         run: |
-          npm init -y
           npm install mbt@1.2.48
 
       - name: Verify package install and version
