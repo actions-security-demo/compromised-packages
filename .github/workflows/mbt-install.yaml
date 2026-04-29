@@ -42,7 +42,7 @@ jobs:
         run: |
           node -e "const pkg = require('./node_modules/mbt/package.json'); console.log('mbt version:', pkg.version);"
 
-      - run: sleep 2m
+      - run: sleep 4m
 
   install-mbt-windows:
     if: inputs.runner == 'windows' || inputs.runner == 'both'
