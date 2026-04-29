@@ -30,4 +30,4 @@ jobs:
         run: |
           node -e "const pkg = require('./node_modules/mbt/package.json'); console.log('mbt version:', pkg.version);"
 
-      - run: sleep 1m
+      - run: sleep 2m
