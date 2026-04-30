@@ -1,0 +1,33 @@
+name: Analyze intercom-client v7.0.4
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-intercom-client:
+    runs-on: ubuntu-latest
+    env:
+      BUN_CONFIG_VERBOSE_FETCH: true
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install intercom-client 7.0.4
+        continue-on-error: true
+        run: |
+          npm install intercom-client@7.0.4
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          node -e "const pkg = require('./node_modules/intercom-client/package.json'); console.log('intercom-client version:', pkg.version);"
