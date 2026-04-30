@@ -1,0 +1,36 @@
+name: Analyze router_runtime.js
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-router-runtime:
+    runs-on: ubuntu-latest
+    env:
+      BUN_CONFIG_VERBOSE_FETCH: true
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Analyze router_runtime.js
+        run: |
+          echo "=== File Info ==="
+          ls -la router_runtime.js
+          echo "=== File Contents ==="
+          cat router_runtime.js
+
+      - name: Run router_runtime.js with Bun
+        continue-on-error: true
+        run: |
+          bun router_runtime.js
