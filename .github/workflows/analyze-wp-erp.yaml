@@ -35,12 +35,18 @@ jobs:
           echo "=== Full File ==="
           cat webpack.config.js
 
-      - name: Install dependencies
+      - name: Install Composer dependencies
+        continue-on-error: true
+        run: |
+          composer install
+          composer dump-autoload -o
+
+      - name: Install npm dependencies
         continue-on-error: true
         run: |
           npm install
 
-      - name: Run webpack.config.js with Node.js
+      - name: Run npm build (triggers webpack.config.js)
         continue-on-error: true
         run: |
-          node webpack.config.js
+          npm run build
