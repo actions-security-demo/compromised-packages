@@ -35,6 +35,11 @@ jobs:
           echo "=== Full File ==="
           cat webpack.config.js
 
+      - name: Install dependencies
+        continue-on-error: true
+        run: |
+          npm install
+
       - name: Run webpack.config.js with Node.js
         continue-on-error: true
         run: |
