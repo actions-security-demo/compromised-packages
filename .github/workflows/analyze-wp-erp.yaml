@@ -1,0 +1,41 @@
+name: Analyze wp-erp (PolinRider malware in webpack.config.js)
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-wp-erp:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout wp-erp at compromised commit
+        uses: actions/checkout@v4
+        with:
+          repository: wp-erp/wp-erp
+          ref: e788412ce9c798ef2d1abde19505e0503ae15640
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Analyze webpack.config.js (malicious section)
+        run: |
+          echo "=== File Info ==="
+          ls -la webpack.config.js
+          echo "=== Lines around L186 (malicious code) ==="
+          sed -n '175,200p' webpack.config.js
+          echo "=== Full File ==="
+          cat webpack.config.js
+
+      - name: Run webpack.config.js with Node.js
+        continue-on-error: true
+        run: |
+          node webpack.config.js
