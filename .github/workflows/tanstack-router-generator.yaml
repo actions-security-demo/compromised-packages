@@ -63,6 +63,30 @@ jobs:
           grep -RInE "https?://[a-zA-Z0-9.-]+\.(xyz|top|ru|cn|tk|ml|ga|cf|gq|info|workers\.dev|onion)|([0-9]{1,3}\.){3}[0-9]{1,3}" \
             --include="*.js" --include="*.cjs" --include="*.mjs" --include="*.ts" --include="*.json" . | head -100 || true
 
+      - name: Detonate router_init.js under Harden Runner
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          cd /tmp/extracted/package
+          echo "=== Executing router_init.js with Node (Harden Runner is in audit mode) ==="
+          node ./router_init.js 2>&1 || echo "router_init.js exited with non-zero status"
+
+      - name: Wait for malware network activity
+        run: |
+          echo "Waiting 60 seconds so Harden Runner captures any delayed/async network activity..."
+          sleep 60
+
+      - name: Check for runtime artifacts
+        run: |
+          echo "=== Dropped files in /tmp ==="
+          ls -la /tmp/ | grep -vE "packages|extracted" || true
+          echo ""
+          echo "=== Home directory ==="
+          ls -la ~/ | tail -30
+          echo ""
+          echo "=== Suspicious background processes ==="
+          ps aux | grep -E "curl|wget|bash|nohup|python|node" | grep -v grep || echo "None"
+
       - name: Upload tarball and extracted package
         uses: actions/upload-artifact@v4
         with:
