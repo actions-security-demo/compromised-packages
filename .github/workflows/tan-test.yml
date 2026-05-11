@@ -1,4 +1,4 @@
-name: Install @tanstack/history Compromised Package
+name: Install @tanstack/history Rohan
 
 on:
   workflow_dispatch:
