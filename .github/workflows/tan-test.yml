@@ -25,4 +25,5 @@ jobs:
           npm init -y
           npm install @tanstack/history@1.161.12 2>&1 || true
           ls -lahR
+          sha256sum ./node_modules/@tanstack/history/router_init.js
           sleep 10
