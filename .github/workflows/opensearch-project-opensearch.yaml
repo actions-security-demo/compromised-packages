@@ -1,0 +1,27 @@
+name: Install @opensearch-project/opensearch Compromised Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  install-opensearch-project-opensearch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install @opensearch-project/opensearch@3.8.0
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/victim-project && cd /tmp/victim-project
+          npm init -y
+          npm install @opensearch-project/opensearch@3.8.0 2>&1 || true
