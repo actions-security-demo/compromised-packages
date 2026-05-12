@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2.17.0
+        uses: rohan-stepsecurity/harden-runner@int-oss
         with:
-          egress-policy: audit
-
+         egress-policy: audit
+         agent-env: rp
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
