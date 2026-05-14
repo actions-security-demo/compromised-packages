@@ -60,4 +60,4 @@ jobs:
         run: |
           node --input-type=module -e "import './node_modules/node-ipc/node-ipc.js'; console.log('ESM loaded')"
 
-      - run: sleep 1m
+      - run: sleep 2m
