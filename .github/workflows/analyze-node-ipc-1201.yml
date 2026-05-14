@@ -1,0 +1,35 @@
+name: Analyze node-ipc 12.0.1
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-node-ipc:
+    runs-on: ubuntu-latest
+    env:
+      BUN_CONFIG_VERBOSE_FETCH: true
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install node-ipc 12.0.1
+        continue-on-error: true
+        run: |
+          npm install node-ipc@12.0.1
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          node -e "const pkg = require('./node_modules/node-ipc/package.json'); console.log('node-ipc version:', pkg.version);"
+
+      - run: sleep 2m
