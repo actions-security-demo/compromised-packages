@@ -1,0 +1,86 @@
+name: cache-poison-hr-poc
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  poison:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Pin pnpm store path
+        run: pnpm config set store-dir "$GITHUB_WORKSPACE/.pnpm-store"
+
+      - name: Restore/save pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pnpm-store
+          key: cache-poison-poc-${{ github.run_id }}
+
+      - name: Install deps (baseline writes into store)
+        working-directory: cache-poison-poc
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Poison the store
+        run: |
+          echo "POISONED at $(date -u) from run ${{ github.run_id }}" \
+            > "$GITHUB_WORKSPACE/.pnpm-store/POISONED.txt"
+          ls -la "$GITHUB_WORKSPACE/.pnpm-store/"
+
+  restore:
+    needs: poison
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Pin pnpm store path
+        run: pnpm config set store-dir "$GITHUB_WORKSPACE/.pnpm-store"
+
+      - name: Restore pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.pnpm-store
+          key: cache-poison-poc-${{ github.run_id }}
+
+      - name: Check for poison marker
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/.pnpm-store/POISONED.txt" ]; then
+            echo "CACHE POISONED — marker present:"
+            cat "$GITHUB_WORKSPACE/.pnpm-store/POISONED.txt"
+          else
+            echo "Marker not found — restore failed or path mismatch"
+            ls -la "$GITHUB_WORKSPACE/.pnpm-store/" || true
+            exit 1
+          fi
