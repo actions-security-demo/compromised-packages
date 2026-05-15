@@ -1,0 +1,54 @@
+name: Analyze DeepSeek-TUI issue #1683 (unexpected outbound 443)
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-deepseek-tui-1683:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Context
+        run: |
+          echo "Issue: https://github.com/Hmbown/DeepSeek-TUI/issues/1683"
+          echo "Target IOC: 36.159.70.231:443"
+
+      - name: Install deepseek-tui globally
+        continue-on-error: true
+        run: |
+          npm install -g deepseek-tui
+
+      - name: Collect package and runtime metadata
+        continue-on-error: true
+        run: |
+          npm ls -g --depth=0 deepseek-tui || true
+          npm view deepseek-tui version dist.shasum dist.integrity
+          which deepseek || true
+          deepseek --version || true
+
+      - name: Trigger potential background network activity
+        continue-on-error: true
+        env:
+          DEEPSEEK_API_KEY: test_key_for_repro_only
+        run: |
+          set +e
+          deepseek --help
+          deepseek doctor
+          timeout 1m deepseek
+
+      - name: Note for analysis
+        run: |
+          echo "Review StepSecurity egress audit for unexpected outbound connections."
+          echo "Specifically check for traffic to 36.159.70.231:443."
