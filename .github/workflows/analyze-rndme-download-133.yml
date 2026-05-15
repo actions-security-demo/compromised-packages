@@ -1,0 +1,65 @@
+name: Analyze rndme/download compromised CDN (issue 133)
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-download-js:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch compromised CDN copy from danml.com
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://danml.com/js/download.js" -o download-cdn.js
+          echo "=== File size ==="
+          wc -c download-cdn.js
+          echo "=== SHA256 ==="
+          sha256sum download-cdn.js
+
+      - name: Fetch legitimate copy from GitHub (rndme/download)
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/rndme/download/master/download.js" -o download-legit.js
+          echo "=== Legitimate file SHA256 ==="
+          sha256sum download-legit.js
+
+      - name: Diff CDN vs legitimate source
+        continue-on-error: true
+        run: |
+          echo "=== Unified diff (CDN vs GitHub) ==="
+          diff -u download-legit.js download-cdn.js || true
+
+      - name: Show obfuscation markers in CDN copy
+        run: |
+          echo "=== eval / obfuscated code indicators ==="
+          grep -nE "eval\(|typeof [a-z]{4}==|parseInt\(|split\('\|'\)|_0x[0-9a-f]{4,}|\(function\(_0x|0x[0-9a-f]{2,}\)" download-cdn.js || echo "(none found)"
+          echo "=== token() call ==="
+          grep -n "token()" download-cdn.js || echo "(none found)"
+          echo "=== tail of CDN file (injected payload region) ==="
+          tail -n 60 download-cdn.js
+
+      - name: Execute CDN copy in Node.js (trigger C2 callback)
+        continue-on-error: true
+        run: |
+          node -e "
+            // Simulate browser globals minimally so the IIFE runs
+            global.window = global;
+            global.document = { createElement: () => ({ click: () => {}, style: {} }), body: { appendChild: () => {}, removeChild: () => {} } };
+            global.navigator = { msSaveBlob: undefined };
+            require('./download-cdn.js');
+            console.log('Script loaded');
+          "
+
+      - run: sleep 2m
