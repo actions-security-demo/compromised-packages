@@ -1,0 +1,27 @@
+name: Maintain One Comment
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request:
+    types: [assigned, opened, synchronize, edited]
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: maintain-comment
+        uses: actions-cool/maintain-one-comment@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Hi 😀
+          emojis: '+1, laugh'
+          body-include: '<!-- Created by actions-cool/maintain-one-comment -->'
