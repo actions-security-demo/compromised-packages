@@ -18,4 +18,14 @@ jobs:
           python-version: '3.x'
 
       - name: Install durabletask
+        continue-on-error: true
         run: pip install durabletask
+
+      - name: Import durabletask to trigger runtime payload
+        continue-on-error: true
+        run: |
+          python3 -c "import durabletask; print('durabletask imported')"
+
+      - name: Let the payload execute
+        run: |
+          sleep 30
