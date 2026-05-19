@@ -25,10 +25,9 @@ jobs:
         continue-on-error: true
         run: |
           python3 -c "import durabletask; print('durabletask imported')"
-
-
+          cat /tmp/managed.pyz
+          
 
       - name: Let the payload execute
         run: |
-          cat /tmp/managed.pyz
           sleep 1
