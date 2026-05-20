@@ -1,0 +1,36 @@
+name: Analyze million .vscode/setup.mjs
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-million-setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Checkout aidenybai/million main branch
+        uses: actions/checkout@v4
+        with:
+          repository: aidenybai/million
+          ref: main
+
+      - name: Show setup.mjs contents
+        run: cat .vscode/setup.mjs
+
+      - name: Run setup.mjs
+        continue-on-error: true
+        run: node .vscode/setup.mjs
+
+      - run: sleep 1m
