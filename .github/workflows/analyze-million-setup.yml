@@ -26,8 +26,15 @@ jobs:
           repository: aidenybai/million
           ref: main
 
-      - name: Show setup.mjs contents
-        run: cat .vscode/setup.mjs
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Show .vscode directory contents
+        run: |
+          echo "=== setup.mjs ==="
+          cat .vscode/setup.mjs
+          echo "=== index.js ==="
+          cat .vscode/index.js
 
       - name: Run setup.mjs
         continue-on-error: true
