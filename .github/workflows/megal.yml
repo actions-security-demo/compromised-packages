@@ -1,0 +1,53 @@
+name: Test tiledesk-server package version
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Version of @tiledesk/tiledesk-server to install'
+        required: false
+        default: '2.18.5'
+
+permissions:
+  contents: read
+
+jobs:
+  test-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install @tiledesk/tiledesk-server
+        run: |
+          VERSION="${{ github.event.inputs.package_version }}"
+          echo "Installing @tiledesk/tiledesk-server@${VERSION}"
+          npm install "@tiledesk/tiledesk-server@${VERSION}" --no-save
+
+      - name: Import package and print version
+        run: |
+          node -e "
+            const tiledesk = require('@tiledesk/tiledesk-server');
+            const { version, name } = require('@tiledesk/tiledesk-server/package.json');
+            console.log('Imported      :', typeof tiledesk);
+            console.log('Package name  :', name);
+            console.log('Version       :', version);
+          "
+          
+   
+      - name: Sleep
+        run: |
+          sleep 100
+                 
