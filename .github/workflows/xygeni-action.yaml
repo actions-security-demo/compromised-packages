@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: Xygeni-Scanner
-        uses: xygeni/xygeni-action@v5
+        uses: xygeni/xygeni-action@ea66a5ad3128270e853f46013be382e761d930b9 # v5.38.1
         id: Xygeni-Scanner
         with:
           token: ${{ secrets.XYGENI_TOKEN }}
