@@ -1,0 +1,34 @@
+name: Analyze @redhat-cloud-services/notifications-client 6.1.4
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-redhat-notifications-client:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install @redhat-cloud-services/notifications-client 6.1.4
+        continue-on-error: true
+        run: |
+          npm install @redhat-cloud-services/notifications-client@6.1.4
+
+      - name: Verify package install and version
+        continue-on-error: true
+        run: |
+          node -e "const pkg = require('./node_modules/@redhat-cloud-services/notifications-client/package.json'); console.log('@redhat-cloud-services/notifications-client version:', pkg.version);"
+          npm view @redhat-cloud-services/notifications-client@6.1.4 dist.shasum
+
+      - run: sleep 30s
