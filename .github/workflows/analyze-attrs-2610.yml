@@ -44,6 +44,8 @@ jobs:
           print(getattr(attrs, "__version__", "version attribute not found"))
           PY
 
+      - run: sleep 1m
+
       - name: Upload wheel as artifact
         uses: actions/upload-artifact@v4
         with:
