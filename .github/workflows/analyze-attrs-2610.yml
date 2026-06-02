@@ -1,0 +1,52 @@
+name: Analyze attrs 26.1.0
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze-attrs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Show Python info
+        run: |
+          python --version
+          python -m pip --version
+
+      - name: Download attrs wheel without installing
+        run: |
+          mkdir -p /tmp/check
+          python -m pip download attrs==26.1.0 --no-deps -d /tmp/check
+
+      - name: Install attrs into isolated target
+        run: |
+          python -m pip install --no-deps --target /tmp/attrs-test /tmp/check/attrs-26.1.0-*.whl
+
+      - name: Import attrs from isolated target
+        continue-on-error: true
+        run: |
+          PYTHONPATH=/tmp/attrs-test python - <<'PY'
+          import attrs
+          print("attrs imported successfully")
+          print(getattr(attrs, "__version__", "version attribute not found"))
+          PY
+
+      - name: Upload wheel as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: attrs-26.1.0-wheel
+          path: /tmp/check/*.whl
+          retention-days: 90
