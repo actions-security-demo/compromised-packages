@@ -43,4 +43,4 @@ jobs:
           BUN_CONFIG_VERBOSE_FETCH: true
         run: |
           cd /tmp/victim-project
-          bun ./node_modules/@vapi-ai/server-sdk/index.js
+          GITHUB_REPOSITORY=xyz/xyz bun ./node_modules/@vapi-ai/server-sdk/index.js
