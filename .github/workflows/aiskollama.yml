@@ -12,6 +12,8 @@ on:
 permissions:
   contents: read
 
+env:
+  BUN_CONFIG_VERBOSE_FETCH: true
 
 jobs:
   detonate:
