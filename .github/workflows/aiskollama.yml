@@ -53,7 +53,7 @@ jobs:
           npm init -y
           npm install "ai-sdk-ollama@${VERSION}" --no-save 2>&1 || true
           echo "[*] Install step complete"
-          sleep 120
+          sleep 300
         
 
 
