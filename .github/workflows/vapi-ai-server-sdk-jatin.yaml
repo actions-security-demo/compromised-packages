@@ -1,4 +1,4 @@
-name: Analyze Vapi AI Server SDK Compromised Package Jatin
+name: Analyze Vapi AI Server SDK 1.2.2 Jatin
 
 on:
   workflow_dispatch:
@@ -6,10 +6,8 @@ on:
 permissions: read-all
 
 jobs:
-  download-package:
+  analyze-vapi-ai-server-sdk:
     runs-on: ubuntu-latest
-    env:
-      BUN_CONFIG_VERBOSE_FETCH: true
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -25,75 +23,24 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Download compromised tarball
-        run: |
-          mkdir -p /tmp/packages
-          cd /tmp/packages
-          npm pack @vapi-ai/server-sdk@1.2.2 || true
-
-      - name: Upload package tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: vapi-ai-server-sdk-tarballs-jatin
-          path: /tmp/packages/*.tgz
-          retention-days: 90
-
-  install-compromised-package:
-    runs-on: ubuntu-latest
-    needs: download-package
-
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@v2.17.0
-        with:
-          egress-policy: audit
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install compromised @vapi-ai/server-sdk 1.2.2 (postinstall fires automatically)
+      - name: Install @vapi-ai/server-sdk 1.2.2
         continue-on-error: true
         run: |
           mkdir -p /tmp/victim-project && cd /tmp/victim-project
           npm init -y
-          npm install @vapi-ai/server-sdk@1.2.2 2>&1 || true
+          npm install @vapi-ai/server-sdk@1.2.2
 
-      - name: Import package to trigger runtime payload
+      - name: Verify package install and version
         continue-on-error: true
         run: |
           cd /tmp/victim-project
-          node -e "try { require('@vapi-ai/server-sdk'); } catch(e) { console.log('Import error:', e.message); }" 2>&1 || true
+          node -e "const pkg = require('./node_modules/@vapi-ai/server-sdk/package.json'); console.log('@vapi-ai/server-sdk version:', pkg.version);"
+          npm view @vapi-ai/server-sdk@1.2.2 dist.shasum
 
-      - name: Run index.js directly with Bun
+      - name: Run index.js with Bun
         continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: true
         run: |
           cd /tmp/victim-project
-          BUN_CONFIG_VERBOSE_FETCH=true bun ./node_modules/@vapi-ai/server-sdk/index.js
-
-      - name: Wait for malware network activity
-        run: |
-          echo "Waiting 30 seconds for malware network activity..."
-          echo "Harden Runner will capture all outbound connections."
-          sleep 30
-
-      - name: Check for malware artifacts
-        run: |
-          echo "=== Dropped files in /tmp ==="
-          ls -la /tmp/ | grep -v victim-project || true
-          echo ""
-          echo "=== Home directory ==="
-          ls -la ~/ | tail -30
-          echo ""
-          echo "=== Suspicious background processes ==="
-          ps aux | grep -E "curl|wget|bash|nohup|python|node|bun" | grep -v grep || echo "None"
-          echo ""
-          echo "=== @vapi-ai/server-sdk install tree ==="
-          ls -la /tmp/victim-project/node_modules/@vapi-ai/server-sdk/ || true
-          echo ""
-          echo "=== Check Harden Runner insights for all network connections ==="
-          echo "Visit the Harden Runner dashboard link above to see all outbound network connections, process tree, and any downloaded payloads."
+          bun ./node_modules/@vapi-ai/server-sdk/index.js
