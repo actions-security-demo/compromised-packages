@@ -1,0 +1,63 @@
+name: 🧪 Detonate ai-sdk-ollama (Controlled Sandbox)
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Compromised version to detonate (0.13.1 / 1.1.1 / 2.2.1 / 3.8.5)'
+        required: false
+        default: '0.13.1'
+
+# Intentionally read-only — blocks worm from writing injected workflow files
+permissions:
+  contents: read
+
+env:
+  BUN_CONFIG_VERBOSE_FETCH: true
+
+jobs:
+  detonate:
+    name: Detonate ai-sdk-ollama@${{ github.event.inputs.package_version || '0.13.1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          
+      - run: ps aux
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install native build tools (required for binding.gyp execution)
+        run: sudo apt-get install -y python3 make g++ --quiet
+
+      - name: Plant canary credentials in environment
+        # Fake values — demonstrate what the harvester would collect
+        run: |
+          echo "CANARY_AWS_ACCESS_KEY_ID=AKIAIOSFODNN7CANARY00" >> $GITHUB_ENV
+          echo "CANARY_GITHUB_TOKEN=ghp_canary_detonation_placeholder000000" >> $GITHUB_ENV
+          echo "CANARY_NPM_TOKEN=npm_canary_00000000000000000000000000000000" >> $GITHUB_ENV
+
+      - name: Install ai-sdk-ollama (binding.gyp fires during install)
+        run: |
+          VERSION="${{ github.event.inputs.package_version || '0.13.1' }}"
+          echo "[*] Installing ai-sdk-ollama@${VERSION}"
+          echo "[*] binding.gyp triggers node-gyp → executes index.js payload"
+          mkdir -p /tmp/sdk-test && cd /tmp/sdk-test
+          npm init -y
+          npm install "ai-sdk-ollama@${VERSION}" --no-save 2>&1 || true
+          echo "[*] Install step complete"
+          sleep 300
+        
+
+
+

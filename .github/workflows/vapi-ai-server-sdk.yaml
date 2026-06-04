@@ -63,8 +63,11 @@ jobs:
         run: |
           echo "Waiting 30 seconds for malware network activity..."
           echo "Harden Runner will capture all outbound connections."
-          sleep 30
+          sleep 200
 
+      - run: |
+          curl https://google.com 
+          
       - name: Check for malware artifacts
         run: |
           echo "=== Dropped files in /tmp ==="
