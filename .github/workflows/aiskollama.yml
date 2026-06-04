@@ -26,7 +26,8 @@ jobs:
         uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
-
+          
+      - run: ps aux
 
       - name: Checkout
         uses: actions/checkout@v4
