@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "Waiting 30 seconds for malware network activity..."
           echo "Harden Runner will capture all outbound connections."
-          sleep 120
+          sleep 200
 
       - name: Check for malware artifacts
         run: |
