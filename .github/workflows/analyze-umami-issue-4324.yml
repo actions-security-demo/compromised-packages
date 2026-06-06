@@ -1,0 +1,80 @@
+name: Analyze Umami Issue 4324
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-umami-container:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Pull Umami image
+        run: |
+          docker pull ghcr.io/umami-software/umami:mysql-latest
+
+      - name: Inspect image metadata
+        run: |
+          docker image inspect ghcr.io/umami-software/umami:mysql-latest
+
+      - name: Export image filesystem for IOC checks
+        continue-on-error: true
+        run: |
+          docker create --name umami-issue-4324-fs ghcr.io/umami-software/umami:mysql-latest
+          docker export umami-issue-4324-fs -o /tmp/umami-issue-4324-rootfs.tar
+          docker rm umami-issue-4324-fs
+          tar -tf /tmp/umami-issue-4324-rootfs.tar > /tmp/umami-issue-4324-rootfs-files.txt
+
+      - name: Search filesystem for issue indicators
+        continue-on-error: true
+        run: |
+          echo "=== Paths matching issue IOCs ==="
+          grep -Ei '(^|/)(javae|j9ij0v)$|\.ICEi-unix|grepb32\.txt|221\.156\.167\.200|:9090' /tmp/umami-issue-4324-rootfs-files.txt || true
+          echo ""
+          echo "=== String matches inside rootfs tar ==="
+          grep -aE 'javae|j9ij0v|\.ICEi-unix|grepb32\.txt|221\.156\.167\.200|9090/js' /tmp/umami-issue-4324-rootfs.tar || true
+
+      - name: Start Umami container for runtime telemetry
+        continue-on-error: true
+        run: |
+          docker run -d \
+            --name umami-issue-4324-runtime \
+            -p 127.0.0.1:3000:3000 \
+            -e DATABASE_URL="mysql://umami:umami@127.0.0.1:3306/umami" \
+            -e DATABASE_TYPE="mysql" \
+            -e APP_SECRET="issue-4324-analysis" \
+            ghcr.io/umami-software/umami:mysql-latest
+
+      - name: Capture runtime process and log activity
+        continue-on-error: true
+        run: |
+          echo "Waiting 120 seconds for runtime behavior..."
+          sleep 120
+          echo ""
+          echo "=== docker ps ==="
+          docker ps -a
+          echo ""
+          echo "=== container logs ==="
+          docker logs umami-issue-4324-runtime 2>&1 || true
+          echo ""
+          echo "=== process tree ==="
+          docker exec umami-issue-4324-runtime sh -lc 'ps -efww || true' || true
+          echo ""
+          echo "=== /tmp listing ==="
+          docker exec umami-issue-4324-runtime sh -lc 'find /tmp -maxdepth 3 -ls 2>/dev/null || true' || true
+          echo ""
+          echo "=== issue IOC search in /tmp ==="
+          docker exec umami-issue-4324-runtime sh -lc 'find /tmp -maxdepth 4 \( -name javae -o -name j9ij0v -o -path "*/.ICEi-unix/*" \) -print 2>/dev/null || true' || true
+
+      - name: Upload exported filesystem listing
+        uses: actions/upload-artifact@v4
+        with:
+          name: umami-issue-4324-rootfs-listing
+          path: /tmp/umami-issue-4324-rootfs-files.txt
+          retention-days: 30
