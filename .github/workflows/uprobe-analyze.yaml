@@ -1,0 +1,102 @@
+name: Analyze uprobe Quarantined Package
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  download-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Download quarantined wheel directly from files.pythonhosted.org
+        run: |
+          mkdir -p /tmp/packages
+          cd /tmp/packages
+          # pip install is blocked because the project is quarantined on PyPI,
+          # but the wheel object on files.pythonhosted.org is still served.
+          curl -fL -o uprobe-0.1.4-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/df/31/a03ea8534bdad483ba856f85ff57aaccc642d432388c55b046d45a788c59/uprobe-0.1.4-py3-none-any.whl
+          ls -la
+          sha256sum uprobe-0.1.4-py3-none-any.whl
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: uprobe-0.1.4-wheel
+          path: /tmp/packages/uprobe-0.1.4-py3-none-any.whl
+          retention-days: 90
+
+  install-and-run:
+    runs-on: ubuntu-latest
+    needs: download-wheel
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download wheel from artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uprobe-0.1.4-wheel
+          path: /tmp/packages
+
+      - name: Install local wheel (bypasses PyPI quarantine gate)
+        continue-on-error: true
+        run: |
+          python -m pip install /tmp/packages/uprobe-0.1.4-py3-none-any.whl
+          python -m pip show uprobe || true
+
+      - name: Inspect installed package layout
+        continue-on-error: true
+        run: |
+          python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
+            | xargs -I{} sh -c 'echo "=== Tree: {} ==="; ls -laR {}' || true
+
+      - name: Import package to trigger runtime payload (spoofed repo)
+        continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
+        run: |
+          strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
+            python -c "import uprobe; print('uprobe version:', getattr(uprobe, '__version__', 'unknown'))" 2>&1 || true
+
+      - name: Wait for malware network activity
+        run: |
+          echo "Waiting 60 seconds for malware network activity..."
+          echo "Harden Runner will capture all outbound connections."
+          sleep 60
+
+      - name: Check for malware artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Dropped files in /tmp ==="
+          ls -la /tmp/ | grep -v packages || true
+          echo ""
+          echo "=== Home directory ==="
+          ls -la ~/ | tail -30
+          echo ""
+          echo "=== Suspicious background processes ==="
+          ps aux | grep -E "curl|wget|bash|nohup|python|node" | grep -v grep || echo "None"
+          echo ""
+          echo "=== strace network/exec summary (first 200 lines) ==="
+          head -200 /tmp/uprobe-strace.log || true
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uprobe-strace
+          path: /tmp/uprobe-strace.log
+          retention-days: 30
