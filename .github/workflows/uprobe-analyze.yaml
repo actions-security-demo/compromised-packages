@@ -139,7 +139,7 @@ jobs:
         run: |
           curl -fL -o /tmp/funcdesc-0.2.2-py3-none-any.whl \
             https://files.pythonhosted.org/packages/06/28/8e97d726678ea254e29cb85daa5645271b59d96cd61d1dc6ae2be8d61715/funcdesc-0.2.2-py3-none-any.whl
-          sha256sum /tmp/funcdesc-0.2.2.whl
+          sha256sum /tmp/funcdesc-0.2.2-py3-none-any.whl
           python -m pip install --no-deps /tmp/funcdesc-0.2.2-py3-none-any.whl
           python -m pip show funcdesc
 
@@ -227,7 +227,7 @@ jobs:
         run: |
           curl -fL -o /tmp/funcdesc-0.2.3-py3-none-any.whl \
             https://files.pythonhosted.org/packages/ee/07/a3a5d522d90245b00ba11d6f40608c46ce63b4dad69e51f1a197323c4053/funcdesc-0.2.3-py3-none-any.whl
-          sha256sum /tmp/funcdesc-0.2.3.whl
+          sha256sum /tmp/funcdesc-0.2.3-py3-none-any.whl
           python -m pip install --no-deps /tmp/funcdesc-0.2.3-py3-none-any.whl
           python -m pip show funcdesc
 
@@ -315,7 +315,7 @@ jobs:
         run: |
           curl -fL -o /tmp/magique-0.6.8-py3-none-any.whl \
             https://files.pythonhosted.org/packages/50/d2/b764a9af8a672d4ba88e729e19b6f08a4b3eeb8200123569237795a3fc31/magique-0.6.8-py3-none-any.whl
-          sha256sum /tmp/magique-0.6.8.whl
+          sha256sum /tmp/magique-0.6.8-py3-none-any.whl
           python -m pip install --no-deps /tmp/magique-0.6.8-py3-none-any.whl
           python -m pip show magique
 
@@ -403,7 +403,7 @@ jobs:
         run: |
           curl -fL -o /tmp/magique-0.6.9-py3-none-any.whl \
             https://files.pythonhosted.org/packages/fb/cf/376a097f8893ac5c63e3d067b233bf16de9e3c980d8da0ac887a5619b297/magique-0.6.9-py3-none-any.whl
-          sha256sum /tmp/magique-0.6.9.whl
+          sha256sum /tmp/magique-0.6.9-py3-none-any.whl
           python -m pip install --no-deps /tmp/magique-0.6.9-py3-none-any.whl
           python -m pip show magique
 
