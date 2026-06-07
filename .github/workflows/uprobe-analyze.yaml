@@ -63,7 +63,27 @@ jobs:
           python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
             | xargs -I{} sh -c 'echo "=== Tree: {} ==="; ls -laR {}' || true
 
-      - name: Import package to trigger runtime payload (spoofed repo)
+      - name: Show raw .pth payload before patching
+        run: |
+          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+          PTH="$SITE/uprobe-setup.pth"
+          echo "=== uprobe-setup.pth ==="
+          cat "$PTH"
+
+      - name: Patch .pth payload (fix missing tempfile import and _G variable)
+        run: |
+          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+          PTH="$SITE/uprobe-setup.pth"
+          # The attacker's one-liner uses _T (tempfile) and _G but never imports/defines them.
+          # Add tempfile to the import list and define _G as a run-once flag path.
+          sed -i \
+            -e 's/import os as _o,/import os as _o,tempfile as _T,/' \
+            -e 's/open(_G,"w")/open("\/tmp\/.uprobe_bun_done","w")/' \
+            "$PTH"
+          echo "=== patched .pth ==="
+          cat "$PTH"
+
+      - name: Trigger patched .pth payload (spoofed repo)
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
@@ -71,11 +91,11 @@ jobs:
           strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
             python -c "import uprobe; print('uprobe version:', getattr(uprobe, '__version__', 'unknown'))" 2>&1 || true
 
-      - name: Wait for malware network activity
+      - name: Wait for bun download and _index.js execution
         run: |
-          echo "Waiting 60 seconds for malware network activity..."
+          echo "Waiting 120 seconds for Bun download + _index.js execution..."
           echo "Harden Runner will capture all outbound connections."
-          sleep 60
+          sleep 120
 
       - name: Check for malware artifacts
         continue-on-error: true
