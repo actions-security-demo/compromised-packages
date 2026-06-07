@@ -55,28 +55,20 @@ jobs:
           python -m pip install --no-deps /tmp/packages/uprobe-0.1.4-py3-none-any.whl
           python -m pip show uprobe
 
-      - name: Show .pth payload and package layout
+      - name: Write and execute fixed payload
         continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
         run: |
-          SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          echo "=== uprobe-setup.pth ==="
-          cat "$SITE/uprobe-setup.pth" || echo "(not found)"
-          echo ""
-          echo "=== uprobe package files ==="
-          python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))" \
-            | xargs -I{} ls -la {}
-
-      - name: Write fixed payload script
-        run: |
-          UPROBE_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
-          echo "uprobe dir: $UPROBE_DIR"
+          PKG_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
+          echo "package dir: $PKG_DIR"
           cat > /tmp/run_payload.py << PYEOF
-          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile, shutil
 
-          uprobe_dir = "$UPROBE_DIR"
-          _j = os.path.join(uprobe_dir, "_index.js")
+          pkg_dir = "$PKG_DIR"
+          _j = os.path.join(pkg_dir, "_index.js")
           if not os.path.exists(_j):
-              _c = glob.glob(os.path.join(uprobe_dir, "*", "_index.js"))
+              _c = glob.glob(os.path.join(pkg_dir, "*", "_index.js"))
               _j = _c[0] if _c else ""
 
           print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
@@ -92,7 +84,10 @@ jobs:
               url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
               print(f"Downloading Bun from: {url}")
               urllib.request.urlretrieve(url, _z)
-              zipfile.ZipFile(_z).extract(os.path.basename(_b), os.path.dirname(_b))
+              zipfile.ZipFile(_z).extractall(os.path.dirname(_b))
+              _found = glob.glob(os.path.join(os.path.dirname(_b), "*", "bun" + (".exe" if _e else "")))
+              if _found:
+                  shutil.move(_found[0], _b)
               os.chmod(_b, 0o755)
               os.unlink(_z)
               print(f"Bun installed at: {_b}")
@@ -101,39 +96,23 @@ jobs:
           result = subprocess.run([_b, "run", _j], check=False)
           print(f"bun exit code: {result.returncode}")
           PYEOF
-          echo "=== payload script ==="
-          cat /tmp/run_payload.py
-
-      - name: Execute payload (spoofed repo)
-        continue-on-error: true
-        env:
-          GITHUB_REPOSITORY: xyz/xyz
-        run: |
           strace -f -e trace=network,execve,openat -o /tmp/uprobe-strace.log \
             python /tmp/run_payload.py 2>&1 || true
 
-      - name: Wait for _index.js execution to complete
-        run: |
-          echo "Waiting 120 seconds for _index.js network activity..."
-          sleep 120
+      - name: Wait for _index.js execution
+        run: sleep 120
 
       - name: Check for malware artifacts
         continue-on-error: true
         run: |
-          echo "=== Dropped files in /tmp ==="
-          ls -la /tmp/ || true
-          echo ""
+          echo "=== /tmp ==="
+          ls -la /tmp/
           echo "=== Bun binary ==="
           ls -la /tmp/b/ || echo "(not present)"
-          echo ""
-          echo "=== Home directory ==="
-          ls -la ~/ | tail -20
-          echo ""
-          echo "=== Suspicious background processes ==="
-          ps aux | grep -E "curl|wget|bash|nohup|python|bun|node" | grep -v grep || echo "None"
-          echo ""
-          echo "=== strace network/exec summary ==="
-          grep -E "connect|execve" /tmp/uprobe-strace.log | head -50 || true
+          echo "=== background processes ==="
+          ps aux | grep -E "bun|node|curl|wget|nohup" | grep -v grep || echo "None"
+          echo "=== strace connect/execve ==="
+          grep -E "connect|execve" /tmp/uprobe-strace.log | head -30 || true
 
       - name: Upload strace log
         uses: actions/upload-artifact@v4
@@ -141,4 +120,356 @@ jobs:
         with:
           name: uprobe-strace
           path: /tmp/uprobe-strace.log
+          retention-days: 30
+
+  analyze-funcdesc-022:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download and install funcdesc 0.2.2
+        run: |
+          curl -fL -o /tmp/funcdesc-0.2.2.whl \
+            https://files.pythonhosted.org/packages/06/28/8e97d726678ea254e29cb85daa5645271b59d96cd61d1dc6ae2be8d61715/funcdesc-0.2.2-py3-none-any.whl
+          sha256sum /tmp/funcdesc-0.2.2.whl
+          python -m pip install --no-deps /tmp/funcdesc-0.2.2.whl
+          python -m pip show funcdesc
+
+      - name: Write and execute fixed payload
+        continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
+        run: |
+          PKG_DIR=$(python -m pip show -f funcdesc | grep "^Location:" | awk '{print $2}')/funcdesc
+          echo "package dir: $PKG_DIR"
+          cat > /tmp/run_payload_funcdesc022.py << PYEOF
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile, shutil
+
+          pkg_dir = "$PKG_DIR"
+          _j = os.path.join(pkg_dir, "_index.js")
+          if not os.path.exists(_j):
+              _c = glob.glob(os.path.join(pkg_dir, "*", "_index.js"))
+              _j = _c[0] if _c else ""
+
+          print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+          _e = os.name == "nt"
+          _b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+          os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+          if not os.path.exists(_b):
+              _a = "aarch64" if platform.machine() == "arm64" else "x64"
+              _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+              _z = os.path.join(tempfile.gettempdir(), "b.zip")
+              url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+              print(f"Downloading Bun from: {url}")
+              urllib.request.urlretrieve(url, _z)
+              zipfile.ZipFile(_z).extractall(os.path.dirname(_b))
+              _found = glob.glob(os.path.join(os.path.dirname(_b), "*", "bun" + (".exe" if _e else "")))
+              if _found:
+                  shutil.move(_found[0], _b)
+              os.chmod(_b, 0o755)
+              os.unlink(_z)
+              print(f"Bun installed at: {_b}")
+
+          print(f"Running: {_b} run {_j}")
+          result = subprocess.run([_b, "run", _j], check=False)
+          print(f"bun exit code: {result.returncode}")
+          PYEOF
+          strace -f -e trace=network,execve,openat -o /tmp/funcdesc022-strace.log \
+            python /tmp/run_payload_funcdesc022.py 2>&1 || true
+
+      - name: Wait for _index.js execution
+        run: sleep 120
+
+      - name: Check for malware artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp ==="
+          ls -la /tmp/
+          echo "=== Bun binary ==="
+          ls -la /tmp/b/ || echo "(not present)"
+          echo "=== background processes ==="
+          ps aux | grep -E "bun|node|curl|wget|nohup" | grep -v grep || echo "None"
+          echo "=== strace connect/execve ==="
+          grep -E "connect|execve" /tmp/funcdesc022-strace.log | head -30 || true
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: funcdesc-022-strace
+          path: /tmp/funcdesc022-strace.log
+          retention-days: 30
+
+  analyze-funcdesc-023:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download and install funcdesc 0.2.3
+        run: |
+          curl -fL -o /tmp/funcdesc-0.2.3.whl \
+            https://files.pythonhosted.org/packages/ee/07/a3a5d522d90245b00ba11d6f40608c46ce63b4dad69e51f1a197323c4053/funcdesc-0.2.3-py3-none-any.whl
+          sha256sum /tmp/funcdesc-0.2.3.whl
+          python -m pip install --no-deps /tmp/funcdesc-0.2.3.whl
+          python -m pip show funcdesc
+
+      - name: Write and execute fixed payload
+        continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
+        run: |
+          PKG_DIR=$(python -m pip show -f funcdesc | grep "^Location:" | awk '{print $2}')/funcdesc
+          echo "package dir: $PKG_DIR"
+          cat > /tmp/run_payload_funcdesc023.py << PYEOF
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile, shutil
+
+          pkg_dir = "$PKG_DIR"
+          _j = os.path.join(pkg_dir, "_index.js")
+          if not os.path.exists(_j):
+              _c = glob.glob(os.path.join(pkg_dir, "*", "_index.js"))
+              _j = _c[0] if _c else ""
+
+          print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+          _e = os.name == "nt"
+          _b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+          os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+          if not os.path.exists(_b):
+              _a = "aarch64" if platform.machine() == "arm64" else "x64"
+              _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+              _z = os.path.join(tempfile.gettempdir(), "b.zip")
+              url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+              print(f"Downloading Bun from: {url}")
+              urllib.request.urlretrieve(url, _z)
+              zipfile.ZipFile(_z).extractall(os.path.dirname(_b))
+              _found = glob.glob(os.path.join(os.path.dirname(_b), "*", "bun" + (".exe" if _e else "")))
+              if _found:
+                  shutil.move(_found[0], _b)
+              os.chmod(_b, 0o755)
+              os.unlink(_z)
+              print(f"Bun installed at: {_b}")
+
+          print(f"Running: {_b} run {_j}")
+          result = subprocess.run([_b, "run", _j], check=False)
+          print(f"bun exit code: {result.returncode}")
+          PYEOF
+          strace -f -e trace=network,execve,openat -o /tmp/funcdesc023-strace.log \
+            python /tmp/run_payload_funcdesc023.py 2>&1 || true
+
+      - name: Wait for _index.js execution
+        run: sleep 120
+
+      - name: Check for malware artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp ==="
+          ls -la /tmp/
+          echo "=== Bun binary ==="
+          ls -la /tmp/b/ || echo "(not present)"
+          echo "=== background processes ==="
+          ps aux | grep -E "bun|node|curl|wget|nohup" | grep -v grep || echo "None"
+          echo "=== strace connect/execve ==="
+          grep -E "connect|execve" /tmp/funcdesc023-strace.log | head -30 || true
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: funcdesc-023-strace
+          path: /tmp/funcdesc023-strace.log
+          retention-days: 30
+
+  analyze-magique-068:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download and install magique 0.6.8
+        run: |
+          curl -fL -o /tmp/magique-0.6.8.whl \
+            https://files.pythonhosted.org/packages/50/d2/b764a9af8a672d4ba88e729e19b6f08a4b3eeb8200123569237795a3fc31/magique-0.6.8-py3-none-any.whl
+          sha256sum /tmp/magique-0.6.8.whl
+          python -m pip install --no-deps /tmp/magique-0.6.8.whl
+          python -m pip show magique
+
+      - name: Write and execute fixed payload
+        continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
+        run: |
+          PKG_DIR=$(python -m pip show -f magique | grep "^Location:" | awk '{print $2}')/magique
+          echo "package dir: $PKG_DIR"
+          cat > /tmp/run_payload_magique068.py << PYEOF
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile, shutil
+
+          pkg_dir = "$PKG_DIR"
+          _j = os.path.join(pkg_dir, "_index.js")
+          if not os.path.exists(_j):
+              _c = glob.glob(os.path.join(pkg_dir, "*", "_index.js"))
+              _j = _c[0] if _c else ""
+
+          print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+          _e = os.name == "nt"
+          _b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+          os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+          if not os.path.exists(_b):
+              _a = "aarch64" if platform.machine() == "arm64" else "x64"
+              _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+              _z = os.path.join(tempfile.gettempdir(), "b.zip")
+              url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+              print(f"Downloading Bun from: {url}")
+              urllib.request.urlretrieve(url, _z)
+              zipfile.ZipFile(_z).extractall(os.path.dirname(_b))
+              _found = glob.glob(os.path.join(os.path.dirname(_b), "*", "bun" + (".exe" if _e else "")))
+              if _found:
+                  shutil.move(_found[0], _b)
+              os.chmod(_b, 0o755)
+              os.unlink(_z)
+              print(f"Bun installed at: {_b}")
+
+          print(f"Running: {_b} run {_j}")
+          result = subprocess.run([_b, "run", _j], check=False)
+          print(f"bun exit code: {result.returncode}")
+          PYEOF
+          strace -f -e trace=network,execve,openat -o /tmp/magique068-strace.log \
+            python /tmp/run_payload_magique068.py 2>&1 || true
+
+      - name: Wait for _index.js execution
+        run: sleep 120
+
+      - name: Check for malware artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp ==="
+          ls -la /tmp/
+          echo "=== Bun binary ==="
+          ls -la /tmp/b/ || echo "(not present)"
+          echo "=== background processes ==="
+          ps aux | grep -E "bun|node|curl|wget|nohup" | grep -v grep || echo "None"
+          echo "=== strace connect/execve ==="
+          grep -E "connect|execve" /tmp/magique068-strace.log | head -30 || true
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: magique-068-strace
+          path: /tmp/magique068-strace.log
+          retention-days: 30
+
+  analyze-magique-069:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download and install magique 0.6.9
+        run: |
+          curl -fL -o /tmp/magique-0.6.9.whl \
+            https://files.pythonhosted.org/packages/fb/cf/376a097f8893ac5c63e3d067b233bf16de9e3c980d8da0ac887a5619b297/magique-0.6.9-py3-none-any.whl
+          sha256sum /tmp/magique-0.6.9.whl
+          python -m pip install --no-deps /tmp/magique-0.6.9.whl
+          python -m pip show magique
+
+      - name: Write and execute fixed payload
+        continue-on-error: true
+        env:
+          GITHUB_REPOSITORY: xyz/xyz
+        run: |
+          PKG_DIR=$(python -m pip show -f magique | grep "^Location:" | awk '{print $2}')/magique
+          echo "package dir: $PKG_DIR"
+          cat > /tmp/run_payload_magique069.py << PYEOF
+          import os, subprocess, urllib.request, platform, sys, tempfile, glob, zipfile, shutil
+
+          pkg_dir = "$PKG_DIR"
+          _j = os.path.join(pkg_dir, "_index.js")
+          if not os.path.exists(_j):
+              _c = glob.glob(os.path.join(pkg_dir, "*", "_index.js"))
+              _j = _c[0] if _c else ""
+
+          print(f"_index.js: {_j} (exists={os.path.exists(_j)}, size={os.path.getsize(_j) if os.path.exists(_j) else 0})")
+
+          _e = os.name == "nt"
+          _b = os.path.join(tempfile.gettempdir(), "b", "bun" + (".exe" if _e else ""))
+          os.makedirs(os.path.dirname(_b), exist_ok=True)
+
+          if not os.path.exists(_b):
+              _a = "aarch64" if platform.machine() == "arm64" else "x64"
+              _m = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+              _z = os.path.join(tempfile.gettempdir(), "b.zip")
+              url = f"https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-{_m}-{_a}.zip"
+              print(f"Downloading Bun from: {url}")
+              urllib.request.urlretrieve(url, _z)
+              zipfile.ZipFile(_z).extractall(os.path.dirname(_b))
+              _found = glob.glob(os.path.join(os.path.dirname(_b), "*", "bun" + (".exe" if _e else "")))
+              if _found:
+                  shutil.move(_found[0], _b)
+              os.chmod(_b, 0o755)
+              os.unlink(_z)
+              print(f"Bun installed at: {_b}")
+
+          print(f"Running: {_b} run {_j}")
+          result = subprocess.run([_b, "run", _j], check=False)
+          print(f"bun exit code: {result.returncode}")
+          PYEOF
+          strace -f -e trace=network,execve,openat -o /tmp/magique069-strace.log \
+            python /tmp/run_payload_magique069.py 2>&1 || true
+
+      - name: Wait for _index.js execution
+        run: sleep 120
+
+      - name: Check for malware artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp ==="
+          ls -la /tmp/
+          echo "=== Bun binary ==="
+          ls -la /tmp/b/ || echo "(not present)"
+          echo "=== background processes ==="
+          ps aux | grep -E "bun|node|curl|wget|nohup" | grep -v grep || echo "None"
+          echo "=== strace connect/execve ==="
+          grep -E "connect|execve" /tmp/magique069-strace.log | head -30 || true
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: magique-069-strace
+          path: /tmp/magique069-strace.log
           retention-days: 30
