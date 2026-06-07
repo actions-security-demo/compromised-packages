@@ -59,6 +59,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
+          BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
           PKG_DIR=$(python -c "import uprobe, os; print(os.path.dirname(uprobe.__file__))")
           echo "package dir: $PKG_DIR"
@@ -147,6 +148,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
+          BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
           PKG_DIR=$(python -m pip show -f funcdesc | grep "^Location:" | awk '{print $2}')/funcdesc
           echo "package dir: $PKG_DIR"
@@ -235,6 +237,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
+          BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
           PKG_DIR=$(python -m pip show -f funcdesc | grep "^Location:" | awk '{print $2}')/funcdesc
           echo "package dir: $PKG_DIR"
@@ -323,6 +326,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
+          BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
           PKG_DIR=$(python -m pip show -f magique | grep "^Location:" | awk '{print $2}')/magique
           echo "package dir: $PKG_DIR"
@@ -411,6 +415,7 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_REPOSITORY: xyz/xyz
+          BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
           PKG_DIR=$(python -m pip show -f magique | grep "^Location:" | awk '{print $2}')/magique
           echo "package dir: $PKG_DIR"
