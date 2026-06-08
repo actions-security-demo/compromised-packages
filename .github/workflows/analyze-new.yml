@@ -31,11 +31,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          if [ -f /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl ]; then
-            python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl
-          else
-            python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1.tar.gz
-          fi
+          python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl
           python -m pip show ppkt2synergy || true
 
           PKG_DIR=$(python -c "import ppkt2synergy, os; print(os.path.dirname(ppkt2synergy.__file__))" 2>/dev/null || echo "")
@@ -60,6 +56,9 @@ jobs:
           
           echo "=== /tmp directory contents ==="
           ls -la /tmp/ | grep -E "ppkt2|bun|node" || true
+
+      - name: Wait for payload execution
+        run: sleep 120
 
       - name: Upload ppkt2synergy logs
         uses: actions/upload-artifact@v4
@@ -94,11 +93,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          if [ -f /tmp/packages/embiggen-0.11.97-py3-none-any.whl ]; then
-            python -m pip install --no-deps /tmp/packages/embiggen-0.11.97-py3-none-any.whl
-          else
-            python -m pip install --no-deps /tmp/packages/embiggen-0.11.97.tar.gz
-          fi
+          python -m pip install --no-deps /tmp/packages/embiggen-0.11.97-py3-none-any.whl
           python -m pip show embiggen || true
 
           PKG_DIR=$(python -c "import embiggen, os; print(os.path.dirname(embiggen.__file__))" 2>/dev/null || echo "")
@@ -120,6 +115,9 @@ jobs:
         run: |
           echo "=== Strace network/exec activity ==="
           grep -E "connect|execve|socket" /tmp/embiggen-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Wait for payload execution
+        run: sleep 120
 
       - name: Upload embiggen logs
         uses: actions/upload-artifact@v4
@@ -154,11 +152,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          if [ -f /tmp/packages/gpsea-0.9.14-py3-none-any.whl ]; then
-            python -m pip install --no-deps /tmp/packages/gpsea-0.9.14-py3-none-any.whl
-          else
-            python -m pip install --no-deps /tmp/packages/gpsea-0.9.14.tar.gz
-          fi
+          python -m pip install --no-deps /tmp/packages/gpsea-0.9.14-py3-none-any.whl
           python -m pip show gpsea || true
 
           PKG_DIR=$(python -c "import gpsea, os; print(os.path.dirname(gpsea.__file__))" 2>/dev/null || echo "")
@@ -180,6 +174,9 @@ jobs:
         run: |
           echo "=== Strace network/exec activity ==="
           grep -E "connect|execve|socket" /tmp/gpsea-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Wait for payload execution
+        run: sleep 120
 
       - name: Upload gpsea logs
         uses: actions/upload-artifact@v4
@@ -214,11 +211,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          if [ -f /tmp/packages/pyphetools-0.9.120-py3-none-any.whl ]; then
-            python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120-py3-none-any.whl
-          else
-            python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120.tar.gz
-          fi
+          python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120-py3-none-any.whl
           python -m pip show pyphetools || true
 
           PKG_DIR=$(python -c "import pyphetools, os; print(os.path.dirname(pyphetools.__file__))" 2>/dev/null || echo "")
@@ -240,6 +233,9 @@ jobs:
         run: |
           echo "=== Strace network/exec activity ==="
           grep -E "connect|execve|socket" /tmp/pyphetools-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Wait for payload execution
+        run: sleep 120
 
       - name: Upload pyphetools logs
         uses: actions/upload-artifact@v4
@@ -274,11 +270,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          if [ -f /tmp/packages/ensmallen-0.8.101-py3-none-any.whl ]; then
-            python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101-py3-none-any.whl
-          else
-            python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101.tar.gz
-          fi
+          python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101-py3-none-any.whl
           python -m pip show ensmallen || true
 
           PKG_DIR=$(python -c "import ensmallen, os; print(os.path.dirname(ensmallen.__file__))" 2>/dev/null || echo "")
@@ -300,6 +292,9 @@ jobs:
         run: |
           echo "=== Strace network/exec activity ==="
           grep -E "connect|execve|socket" /tmp/ensmallen-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Wait for payload execution
+        run: sleep 120
 
       - name: Upload ensmallen logs
         uses: actions/upload-artifact@v4
