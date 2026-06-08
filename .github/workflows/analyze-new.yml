@@ -266,7 +266,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden GitHub Actions
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@v2.17.0
         with:
           egress-policy: audit
 
