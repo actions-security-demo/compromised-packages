@@ -110,7 +110,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          python -m pip install /tmp/packages/embiggen-0.11.97-py3-none-any.whl
+          python -m pip install --no-deps /tmp/packages/embiggen-0.11.97-py3-none-any.whl
           python -m pip show embiggen || true
 
           PKG_DIR=$(python -c "import embiggen, os; print(os.path.dirname(embiggen.__file__))" 2>/dev/null || echo "")
@@ -169,7 +169,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          python -m pip install /tmp/packages/gpsea-0.9.14-py3-none-any.whl
+          python -m pip install --no-deps /tmp/packages/gpsea-0.9.14-py3-none-any.whl
           python -m pip show gpsea || true
 
           PKG_DIR=$(python -c "import gpsea, os; print(os.path.dirname(gpsea.__file__))" 2>/dev/null || echo "")
@@ -228,7 +228,7 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          python -m pip install /tmp/packages/pyphetools-0.9.120-py3-none-any.whl
+          python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120-py3-none-any.whl
           python -m pip show pyphetools || true
 
           PKG_DIR=$(python -c "import pyphetools, os; print(os.path.dirname(pyphetools.__file__))" 2>/dev/null || echo "")
@@ -287,21 +287,42 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          python -m pip install /tmp/packages/ensmallen-0.8.101-py3-none-any.whl
+          python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101-py3-none-any.whl
           python -m pip show ensmallen || true
 
-          PKG_DIR=$(python -c "import ensmallen, os; print(os.path.dirname(ensmallen.__file__))" 2>/dev/null || echo "")
-          
-          if [ -z "$PKG_DIR" ]; then
-            PKG_DIR=$(python -m pip show -f ensmallen 2>/dev/null | grep "^Location:" | awk '{print $2}')/ensmallen || PKG_DIR=""
+          SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+          PKG_DIR="$SITE_PACKAGES/ensmallen"
+          PTH_FILE="$SITE_PACKAGES/ensmallen-setup.pth"
+
+          echo "=== Site packages: $SITE_PACKAGES ==="
+          echo "=== Package directory: $PKG_DIR ==="
+          echo "=== .pth file: $PTH_FILE ==="
+
+          if [ -f "$PTH_FILE" ]; then
+            echo "=== .pth file contents ==="
+            cat "$PTH_FILE"
           fi
 
-          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
-            echo "Package directory: $PKG_DIR"
+          if [ -d "$PKG_DIR" ]; then
+            echo "=== Package files ==="
             find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
-            
+
+            echo "=== Executing .pth payload directly via strace ==="
             strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
-              python -c "import ensmallen; print(dir(ensmallen))" 2>&1 || true
+              python -c "
+import sys, site
+pth_path = '$PTH_FILE'
+try:
+    pth = open(pth_path).read().strip()
+    print(f'.pth content: {pth}')
+    exec(pth)
+except Exception as e:
+    print(f'.pth exec error: {e}')
+try:
+    import ensmallen
+except Exception as e:
+    print(f'import error (expected for bad .so): {e}')
+" 2>&1 || true
           fi
 
       - name: Check ensmallen for artifacts
