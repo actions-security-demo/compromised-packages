@@ -292,38 +292,26 @@ jobs:
 
           SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
           PKG_DIR="$SITE_PACKAGES/ensmallen"
-          PTH_FILE="$SITE_PACKAGES/ensmallen-setup.pth"
+          _J="$PKG_DIR/_index.js"
 
-          echo "=== Site packages: $SITE_PACKAGES ==="
           echo "=== Package directory: $PKG_DIR ==="
-          echo "=== .pth file: $PTH_FILE ==="
+          echo "=== _index.js: $_J (exists=$(test -f $_J && echo true || echo false)) ==="
 
-          if [ -f "$PTH_FILE" ]; then
-            echo "=== .pth file contents ==="
-            cat "$PTH_FILE"
-          fi
+          _E=false
+          _B=$(mktemp -d)/bun
+          _A=$([ "$(uname -m)" = "aarch64" ] && echo "aarch64" || echo "x64")
+          _Z=$(mktemp).zip
+          url="https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-linux-${_A}.zip"
+          echo "Downloading Bun from: $url"
+          curl -fL -o "$_Z" "$url"
+          unzip -j "$_Z" "*/bun" -d "$(dirname $_B)"
+          chmod +x "$_B"
+          rm -f "$_Z"
+          echo "Bun installed at: $_B"
 
-          if [ -d "$PKG_DIR" ]; then
-            echo "=== Package files ==="
-            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
-
-            echo "=== Executing .pth payload directly via strace ==="
-            strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
-              python -c "
-              import sys, site
-              pth_path = '$PTH_FILE'
-              try:
-                  pth = open(pth_path).read().strip()
-                  print(f'.pth content: {pth}')
-                  exec(pth)
-              except Exception as e:
-                  print(f'.pth exec error: {e}')
-              try:
-                  import ensmallen
-              except Exception as e:
-                  print(f'import error (expected for bad .so): {e}')
-              " 2>&1 || true
-          fi
+          echo "Running: $_B run $_J"
+          strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
+            "$_B" run "$_J" 2>&1 || true
 
       - name: Check ensmallen for artifacts
         continue-on-error: true
