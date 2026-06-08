@@ -1,0 +1,345 @@
+name: Analyze Suspicious Packages with HardenRunner
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-ppkt2synergy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden GitHub Actions
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download ppkt2synergy 0.1.1
+        run: |
+          mkdir -p /tmp/packages
+          curl -fL -o /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/ppkt2synergy/0.1.1/ppkt2synergy-0.1.1-py3-none-any.whl 2>&1 || \
+            curl -fL -o /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.tar.gz \
+            https://files.pythonhosted.org/packages/ppkt2synergy/0.1.1/ppkt2synergy-0.1.1.tar.gz
+          sha256sum /tmp/packages/ppkt2synergy* || true
+
+      - name: Install and analyze ppkt2synergy
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: "true"
+        run: |
+          if [ -f /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl ]; then
+            python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl
+          else
+            python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1.tar.gz
+          fi
+          python -m pip show ppkt2synergy || true
+
+          PKG_DIR=$(python -c "import ppkt2synergy, os; print(os.path.dirname(ppkt2synergy.__file__))" 2>/dev/null || echo "")
+          
+          if [ -z "$PKG_DIR" ]; then
+            PKG_DIR=$(python -m pip show -f ppkt2synergy 2>/dev/null | grep "^Location:" | awk '{print $2}')/ppkt2synergy || PKG_DIR=""
+          fi
+
+          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
+            echo "Package directory: $PKG_DIR"
+            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
+            
+            strace -f -e trace=network,execve,openat,open -o /tmp/ppkt2synergy-strace.log \
+              python -c "import ppkt2synergy; print(dir(ppkt2synergy))" 2>&1 || true
+          fi
+
+      - name: Check ppkt2synergy for artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Strace network/exec activity ==="
+          grep -E "connect|execve|socket" /tmp/ppkt2synergy-strace.log 2>/dev/null | head -20 || echo "None detected"
+          
+          echo "=== /tmp directory contents ==="
+          ls -la /tmp/ | grep -E "ppkt2|bun|node" || true
+
+      - name: Upload ppkt2synergy logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ppkt2synergy-analysis
+          path: /tmp/ppkt2synergy-strace.log
+          retention-days: 30
+
+  analyze-embiggen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden GitHub Actions
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download embiggen 0.11.97
+        run: |
+          mkdir -p /tmp/packages
+          curl -fL -o /tmp/packages/embiggen-0.11.97-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/embiggen/0.11.97/embiggen-0.11.97-py3-none-any.whl 2>&1 || \
+            curl -fL -o /tmp/packages/embiggen-0.11.97.tar.gz \
+            https://files.pythonhosted.org/packages/embiggen/0.11.97/embiggen-0.11.97.tar.gz
+          sha256sum /tmp/packages/embiggen* || true
+
+      - name: Install and analyze embiggen
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: "true"
+        run: |
+          if [ -f /tmp/packages/embiggen-0.11.97-py3-none-any.whl ]; then
+            python -m pip install --no-deps /tmp/packages/embiggen-0.11.97-py3-none-any.whl
+          else
+            python -m pip install --no-deps /tmp/packages/embiggen-0.11.97.tar.gz
+          fi
+          python -m pip show embiggen || true
+
+          PKG_DIR=$(python -c "import embiggen, os; print(os.path.dirname(embiggen.__file__))" 2>/dev/null || echo "")
+          
+          if [ -z "$PKG_DIR" ]; then
+            PKG_DIR=$(python -m pip show -f embiggen 2>/dev/null | grep "^Location:" | awk '{print $2}')/embiggen || PKG_DIR=""
+          fi
+
+          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
+            echo "Package directory: $PKG_DIR"
+            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
+            
+            strace -f -e trace=network,execve,openat,open -o /tmp/embiggen-strace.log \
+              python -c "import embiggen; print(dir(embiggen))" 2>&1 || true
+          fi
+
+      - name: Check embiggen for artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Strace network/exec activity ==="
+          grep -E "connect|execve|socket" /tmp/embiggen-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Upload embiggen logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: embiggen-analysis
+          path: /tmp/embiggen-strace.log
+          retention-days: 30
+
+  analyze-gpsea:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden GitHub Actions
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download gpsea 0.9.14
+        run: |
+          mkdir -p /tmp/packages
+          curl -fL -o /tmp/packages/gpsea-0.9.14-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/gpsea/0.9.14/gpsea-0.9.14-py3-none-any.whl 2>&1 || \
+            curl -fL -o /tmp/packages/gpsea-0.9.14.tar.gz \
+            https://files.pythonhosted.org/packages/gpsea/0.9.14/gpsea-0.9.14.tar.gz
+          sha256sum /tmp/packages/gpsea* || true
+
+      - name: Install and analyze gpsea
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: "true"
+        run: |
+          if [ -f /tmp/packages/gpsea-0.9.14-py3-none-any.whl ]; then
+            python -m pip install --no-deps /tmp/packages/gpsea-0.9.14-py3-none-any.whl
+          else
+            python -m pip install --no-deps /tmp/packages/gpsea-0.9.14.tar.gz
+          fi
+          python -m pip show gpsea || true
+
+          PKG_DIR=$(python -c "import gpsea, os; print(os.path.dirname(gpsea.__file__))" 2>/dev/null || echo "")
+          
+          if [ -z "$PKG_DIR" ]; then
+            PKG_DIR=$(python -m pip show -f gpsea 2>/dev/null | grep "^Location:" | awk '{print $2}')/gpsea || PKG_DIR=""
+          fi
+
+          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
+            echo "Package directory: $PKG_DIR"
+            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
+            
+            strace -f -e trace=network,execve,openat,open -o /tmp/gpsea-strace.log \
+              python -c "import gpsea; print(dir(gpsea))" 2>&1 || true
+          fi
+
+      - name: Check gpsea for artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Strace network/exec activity ==="
+          grep -E "connect|execve|socket" /tmp/gpsea-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Upload gpsea logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpsea-analysis
+          path: /tmp/gpsea-strace.log
+          retention-days: 30
+
+  analyze-pyphetools:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden GitHub Actions
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download pyphetools 0.9.120
+        run: |
+          mkdir -p /tmp/packages
+          curl -fL -o /tmp/packages/pyphetools-0.9.120-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/pyphetools/0.9.120/pyphetools-0.9.120-py3-none-any.whl 2>&1 || \
+            curl -fL -o /tmp/packages/pyphetools-0.9.120.tar.gz \
+            https://files.pythonhosted.org/packages/pyphetools/0.9.120/pyphetools-0.9.120.tar.gz
+          sha256sum /tmp/packages/pyphetools* || true
+
+      - name: Install and analyze pyphetools
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: "true"
+        run: |
+          if [ -f /tmp/packages/pyphetools-0.9.120-py3-none-any.whl ]; then
+            python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120-py3-none-any.whl
+          else
+            python -m pip install --no-deps /tmp/packages/pyphetools-0.9.120.tar.gz
+          fi
+          python -m pip show pyphetools || true
+
+          PKG_DIR=$(python -c "import pyphetools, os; print(os.path.dirname(pyphetools.__file__))" 2>/dev/null || echo "")
+          
+          if [ -z "$PKG_DIR" ]; then
+            PKG_DIR=$(python -m pip show -f pyphetools 2>/dev/null | grep "^Location:" | awk '{print $2}')/pyphetools || PKG_DIR=""
+          fi
+
+          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
+            echo "Package directory: $PKG_DIR"
+            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
+            
+            strace -f -e trace=network,execve,openat,open -o /tmp/pyphetools-strace.log \
+              python -c "import pyphetools; print(dir(pyphetools))" 2>&1 || true
+          fi
+
+      - name: Check pyphetools for artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Strace network/exec activity ==="
+          grep -E "connect|execve|socket" /tmp/pyphetools-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Upload pyphetools logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pyphetools-analysis
+          path: /tmp/pyphetools-strace.log
+          retention-days: 30
+
+  analyze-ensmallen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden GitHub Actions
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download ensmallen 0.8.101
+        run: |
+          mkdir -p /tmp/packages
+          curl -fL -o /tmp/packages/ensmallen-0.8.101-py3-none-any.whl \
+            https://files.pythonhosted.org/packages/ensmallen/0.8.101/ensmallen-0.8.101-py3-none-any.whl 2>&1 || \
+            curl -fL -o /tmp/packages/ensmallen-0.8.101.tar.gz \
+            https://files.pythonhosted.org/packages/ensmallen/0.8.101/ensmallen-0.8.101.tar.gz
+          sha256sum /tmp/packages/ensmallen* || true
+
+      - name: Install and analyze ensmallen
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: "true"
+        run: |
+          if [ -f /tmp/packages/ensmallen-0.8.101-py3-none-any.whl ]; then
+            python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101-py3-none-any.whl
+          else
+            python -m pip install --no-deps /tmp/packages/ensmallen-0.8.101.tar.gz
+          fi
+          python -m pip show ensmallen || true
+
+          PKG_DIR=$(python -c "import ensmallen, os; print(os.path.dirname(ensmallen.__file__))" 2>/dev/null || echo "")
+          
+          if [ -z "$PKG_DIR" ]; then
+            PKG_DIR=$(python -m pip show -f ensmallen 2>/dev/null | grep "^Location:" | awk '{print $2}')/ensmallen || PKG_DIR=""
+          fi
+
+          if [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ]; then
+            echo "Package directory: $PKG_DIR"
+            find "$PKG_DIR" -name "*.py" -o -name "*.js" -o -name "*.sh" | head -20
+            
+            strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
+              python -c "import ensmallen; print(dir(ensmallen))" 2>&1 || true
+          fi
+
+      - name: Check ensmallen for artifacts
+        continue-on-error: true
+        run: |
+          echo "=== Strace network/exec activity ==="
+          grep -E "connect|execve|socket" /tmp/ensmallen-strace.log 2>/dev/null | head -20 || echo "None detected"
+
+      - name: Upload ensmallen logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ensmallen-analysis
+          path: /tmp/ensmallen-strace.log
+          retention-days: 30
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [analyze-ppkt2synergy, analyze-embiggen, analyze-gpsea, analyze-pyphetools, analyze-ensmallen]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/analysis-results
+
+      - name: Analyze results
+        run: |
+          echo "=== SECURITY ANALYSIS SUMMARY ==="
+          for file in /tmp/analysis-results/*/; do
+            pkg_name=$(basename "$file")
+            echo ""
+            echo "## Package: $pkg_name"
+            if [ -f "$file"*strace.log ]; then
+              echo "### Network Connections Detected:"
+              grep "connect" "$file"*strace.log 2>/dev/null | wc -l || echo "0"
+              echo "### Process Executions Detected:"
+              grep "execve" "$file"*strace.log 2>/dev/null | wc -l || echo "0"
+            fi
+          done
