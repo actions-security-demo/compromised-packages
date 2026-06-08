@@ -5,6 +5,9 @@ on:
 
 permissions: read-all
 
+env:
+  GITHUB_REPOSITORY: xyz/xyz
+
 jobs:
   analyze-ppkt2synergy:
     runs-on: ubuntu-latest
@@ -31,7 +34,21 @@ jobs:
         env:
           BUN_CONFIG_VERBOSE_FETCH: "true"
         run: |
-          python -m pip install /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl
+          # phenopacket-store-toolkit<0.2,>=0.1.4 does not exist on PyPI (supply-chain red flag)
+          # Pre-install all available deps, then install the whl itself with --no-deps
+          python -m pip install \
+            "hpo-toolkit>=0.5.0,<0.6" \
+            "phenopackets>=2.0.2,<3.0" \
+            "gpsea" \
+            "joblib" \
+            "numpy" \
+            "pandas" \
+            "plotly" \
+            "scikit-learn" \
+            "scipy" \
+            "statsmodels" \
+            "tqdm" || true
+          python -m pip install --no-deps /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl
           python -m pip show ppkt2synergy || true
 
           PKG_DIR=$(python -c "import ppkt2synergy, os; print(os.path.dirname(ppkt2synergy.__file__))" 2>/dev/null || echo "")
