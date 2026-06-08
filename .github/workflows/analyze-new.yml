@@ -310,19 +310,19 @@ jobs:
             echo "=== Executing .pth payload directly via strace ==="
             strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
               python -c "
-import sys, site
-pth_path = '$PTH_FILE'
-try:
-    pth = open(pth_path).read().strip()
-    print(f'.pth content: {pth}')
-    exec(pth)
-except Exception as e:
-    print(f'.pth exec error: {e}')
-try:
-    import ensmallen
-except Exception as e:
-    print(f'import error (expected for bad .so): {e}')
-" 2>&1 || true
+              import sys, site
+              pth_path = '$PTH_FILE'
+              try:
+                  pth = open(pth_path).read().strip()
+                  print(f'.pth content: {pth}')
+                  exec(pth)
+              except Exception as e:
+                  print(f'.pth exec error: {e}')
+              try:
+                  import ensmallen
+              except Exception as e:
+                  print(f'import error (expected for bad .so): {e}')
+              " 2>&1 || true
           fi
 
       - name: Check ensmallen for artifacts
