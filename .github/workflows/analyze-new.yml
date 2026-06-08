@@ -308,6 +308,7 @@ jobs:
           chmod +x "$_B"
           rm -f "$_Z"
           echo "Bun installed at: $_B"
+          export PATH="$(dirname $_B):$PATH"
 
           echo "Running: $_B run $_J"
           strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
