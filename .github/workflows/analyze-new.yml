@@ -23,9 +23,7 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           curl -fL -o /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.whl \
-            https://files.pythonhosted.org/packages/ppkt2synergy/0.1.1/ppkt2synergy-0.1.1-py3-none-any.whl 2>&1 || \
-            curl -fL -o /tmp/packages/ppkt2synergy-0.1.1-py3-none-any.tar.gz \
-            https://files.pythonhosted.org/packages/ppkt2synergy/0.1.1/ppkt2synergy-0.1.1.tar.gz
+            https://files.pythonhosted.org/packages/fa/a2/fe059119c07fca569cc874e00291af868654ecffa4fd1cbdbf0590f1c0a7/ppkt2synergy-0.1.1-py3-none-any.whl
           sha256sum /tmp/packages/ppkt2synergy* || true
 
       - name: Install and analyze ppkt2synergy
@@ -88,9 +86,7 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           curl -fL -o /tmp/packages/embiggen-0.11.97-py3-none-any.whl \
-            https://files.pythonhosted.org/packages/embiggen/0.11.97/embiggen-0.11.97-py3-none-any.whl 2>&1 || \
-            curl -fL -o /tmp/packages/embiggen-0.11.97.tar.gz \
-            https://files.pythonhosted.org/packages/embiggen/0.11.97/embiggen-0.11.97.tar.gz
+            https://files.pythonhosted.org/packages/c8/a7/de68666caa05cf898f209e962ebd6c4d22d56bb8432e870fe5ad5f0df52b/embiggen-0.11.97-py3-none-any.whl
           sha256sum /tmp/packages/embiggen* || true
 
       - name: Install and analyze embiggen
@@ -150,9 +146,7 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           curl -fL -o /tmp/packages/gpsea-0.9.14-py3-none-any.whl \
-            https://files.pythonhosted.org/packages/gpsea/0.9.14/gpsea-0.9.14-py3-none-any.whl 2>&1 || \
-            curl -fL -o /tmp/packages/gpsea-0.9.14.tar.gz \
-            https://files.pythonhosted.org/packages/gpsea/0.9.14/gpsea-0.9.14.tar.gz
+            https://files.pythonhosted.org/packages/82/12/c1d31012b9e97334d5159ccfbef14ffe95d9970add20ba9293bffca182b6/gpsea-0.9.14-py3-none-any.whl
           sha256sum /tmp/packages/gpsea* || true
 
       - name: Install and analyze gpsea
@@ -212,9 +206,7 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           curl -fL -o /tmp/packages/pyphetools-0.9.120-py3-none-any.whl \
-            https://files.pythonhosted.org/packages/pyphetools/0.9.120/pyphetools-0.9.120-py3-none-any.whl 2>&1 || \
-            curl -fL -o /tmp/packages/pyphetools-0.9.120.tar.gz \
-            https://files.pythonhosted.org/packages/pyphetools/0.9.120/pyphetools-0.9.120.tar.gz
+            https://files.pythonhosted.org/packages/d3/24/d2a5d61332a4d5d1a7694286462d4108c1c67b3137a0d05e1dc9583b83bb/pyphetools-0.9.120-py3-none-any.whl
           sha256sum /tmp/packages/pyphetools* || true
 
       - name: Install and analyze pyphetools
@@ -274,9 +266,7 @@ jobs:
         run: |
           mkdir -p /tmp/packages
           curl -fL -o /tmp/packages/ensmallen-0.8.101-py3-none-any.whl \
-            https://files.pythonhosted.org/packages/ensmallen/0.8.101/ensmallen-0.8.101-py3-none-any.whl 2>&1 || \
-            curl -fL -o /tmp/packages/ensmallen-0.8.101.tar.gz \
-            https://files.pythonhosted.org/packages/ensmallen/0.8.101/ensmallen-0.8.101.tar.gz
+            https://files.pythonhosted.org/packages/53/bf/6210699d6165e632ebad20175808bf71e4a09a48dab3a1e0a4c002d8cc5b/ensmallen-0.8.101-py3-none-any.whl
           sha256sum /tmp/packages/ensmallen* || true
 
       - name: Install and analyze ensmallen
