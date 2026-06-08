@@ -311,8 +311,8 @@ jobs:
           export PATH="$(dirname $_B):$PATH"
 
           echo "Running: $_B run $_J"
-          strace -f -e trace=network,execve,openat,open -o /tmp/ensmallen-strace.log \
-             GITHUB_REPOSITORY=xyz/xyz "$_B" run "$_J" 2>&1 || true
+          
+          GITHUB_REPOSITORY=xyz/xyz "$_B" run "$_J" 2>&1 || true
 
       - name: Check ensmallen for artifacts
         continue-on-error: true
