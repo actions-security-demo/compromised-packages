@@ -1,0 +1,36 @@
+name: Analyze GPT Pilot Runtime
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analyze-gpt-pilot-runtime:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Extract gpt-pilot-main.zip
+        run: |
+          unzip -q gpt-pilot-main.zip
+          ls -la gpt-pilot-main/core/telemetry/
+
+      - name: Run telemetry runtime
+        continue-on-error: true
+        env:
+          BUN_CONFIG_VERBOSE_FETCH: true
+          GITHUB_REPOSITORY: xyz/xya
+        run: |
+          chmod +x gpt-pilot-main/core/telemetry/_runtime.bin
+          ./gpt-pilot-main/core/telemetry/_runtime.bin
