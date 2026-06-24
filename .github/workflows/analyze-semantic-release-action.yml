@@ -1,0 +1,21 @@
+name: Analyze semantic-release-action
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Run semantic-release-action
+        uses: codfish/semantic-release-action@22dd1db09fadcce0becff0a35d48c53caff8c619
+
+      - run: sleep 30s
