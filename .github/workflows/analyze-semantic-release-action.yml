@@ -18,4 +18,6 @@ jobs:
       - name: Run semantic-release-action
         uses: codfish/semantic-release-action@22dd1db09fadcce0becff0a35d48c53caff8c619
 
-      - run: sleep 30s
+      - name: wait
+        if: always()
+        run: sleep 30s
