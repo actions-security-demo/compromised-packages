@@ -25,19 +25,12 @@ jobs:
 
       - name: Download compromised tarball (npm pack does NOT run install scripts)
         run: |
-          mkdir -p /tmp/packages
-          cd /tmp/packages
+          mkdir -p packages
+          cd packages
           # `npm pack` only fetches + repacks the tarball; binding.gyp/node-gyp does
           # NOT fire here. This job is safe collection for archival/static analysis.
           npm pack leo-logger@1.0.8 || true
-          ls -la /tmp/packages
-
-      - name: Upload package tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: leo-logger-tarballs
-          path: /tmp/packages/*.tgz
-          retention-days: 90
+          ls -la packages
 
   install-compromised-package:
     runs-on: ubuntu-latest
@@ -57,7 +50,7 @@ jobs:
       - name: Detonate - install leo-logger@1.0.8 (binding.gyp fires via node-gyp)
         continue-on-error: true
         run: |
-          mkdir -p /tmp/victim-project && cd /tmp/victim-project
+          mkdir -p victim-project && cd victim-project
           npm init -y
           # Installation alone triggers the payload through the Phantom Gyp path.
           npm install leo-logger@1.0.8 --foreground-scripts 2>&1 || true
@@ -65,7 +58,7 @@ jobs:
       - name: Import package to trigger any runtime payload
         continue-on-error: true
         run: |
-          cd /tmp/victim-project
+          cd victim-project
           node -e "try { require('leo-logger'); } catch(e) { console.log('Import error:', e.message); }" 2>&1 || true
 
       - name: Wait for malware network activity
