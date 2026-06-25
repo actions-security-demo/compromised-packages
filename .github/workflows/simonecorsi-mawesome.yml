@@ -1,0 +1,23 @@
+name: Analyze simonecorsi/mawesome
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: h0x0er/harden-runner@int-pr2
+        with:
+          egress-policy: audit
+
+      - name: Run semantic-release-action
+        uses: simonecorsi/mawesome@
+
+      - name: wait
+        if: always()
+        run: sleep 30s
