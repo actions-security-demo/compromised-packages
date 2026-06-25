@@ -30,7 +30,7 @@ jobs:
           # `npm pack` only fetches + repacks the tarball; binding.gyp/node-gyp does
           # NOT fire here. This job is safe collection for archival/static analysis.
           npm pack leo-logger@1.0.8 || true
-          ls -la packages
+          ls -la ./
 
   install-compromised-package:
     runs-on: ubuntu-latest
