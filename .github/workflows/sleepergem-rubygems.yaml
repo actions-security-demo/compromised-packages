@@ -7,10 +7,17 @@ name: Install SleeperGem Compromised RubyGems
 #   - git_credential_manager 2.8.2+ detonates at RUNTIME (on `require`).
 #   - The malware inspects ~30 CI env vars and SKIPS execution when it
 #     detects a build environment, so a plain install on a GitHub runner
-#     will NOT beacon. The runtime job below clears those vars with
+#     will NOT beacon. The runtime jobs below clear those vars with
 #     `env -i` so the payload believes it is on a developer machine.
 # Known C2: git.disroot.org/git-ecosystem/  (public Forgejo instance)
 # Harden-Runner runs in audit mode so all outbound calls are recorded.
+#
+# Compromised versions (confirmed against the RubyGems release timeline):
+#   - git_credential_manager: 2.8.0, 2.8.1, 2.8.2, 2.8.3
+#   - Dendreo:                1.1.3, 1.1.4  (pushed 2026-07-18, dormant since 2020)
+#   - fastlane-plugin-run_tests_firebase_testlab: 0.3.2
+#       (pushed 2026-07-19; upstream GitHub tags stop at v0.3.1, so this
+#        version has no matching source release)
 
 on:
   workflow_dispatch:
@@ -118,3 +125,87 @@ jobs:
           ls -la /tmp || true
           echo "=== home ==="
           ls -la ~ || true
+
+  dendreo:
+    name: Detonate Dendreo ${{ matrix.version }} (install + runtime)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.1.3", "1.1.4"]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install Dendreo ${{ matrix.version }} (install-time detonation)
+        continue-on-error: true
+        run: |
+          echo "=== gem install Dendreo -v ${{ matrix.version }} ==="
+          gem install Dendreo -v "${{ matrix.version }}" --verbose
+
+      - name: Require the gem with CI env vars stripped (runtime detonation)
+        continue-on-error: true
+        run: |
+          env -i \
+            PATH="$PATH" \
+            HOME="$HOME" \
+            GEM_HOME="$(gem env home)" \
+            GEM_PATH="$(gem env path)" \
+            ruby -e '%w[dendreo Dendreo].each { |n| begin; require n; puts "required #{n} OK"; break; rescue LoadError => e; puts "load failed for #{n}: #{e.message}"; end }' || true
+
+      - name: Let any payload beacon
+        run: sleep 120
+
+      - name: Inspect installed gem and dropped artifacts
+        continue-on-error: true
+        run: |
+          gem contents Dendreo || true
+          echo "=== /tmp ==="; ls -la /tmp || true
+          echo "=== home ==="; ls -la ~ || true
+
+  fastlane-plugin:
+    name: Detonate fastlane-plugin-run_tests_firebase_testlab 0.3.2 (install + runtime)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install fastlane-plugin-run_tests_firebase_testlab 0.3.2 (install-time detonation)
+        continue-on-error: true
+        run: |
+          echo "=== gem install fastlane-plugin-run_tests_firebase_testlab -v 0.3.2 ==="
+          gem install fastlane-plugin-run_tests_firebase_testlab -v "0.3.2" --verbose
+
+      - name: Require the gem with CI env vars stripped (runtime detonation)
+        continue-on-error: true
+        run: |
+          env -i \
+            PATH="$PATH" \
+            HOME="$HOME" \
+            GEM_HOME="$(gem env home)" \
+            GEM_PATH="$(gem env path)" \
+            ruby -e "require 'fastlane/plugin/run_tests_firebase_testlab'; puts 'required fastlane plugin OK'" || true
+
+      - name: Let any payload beacon
+        run: sleep 120
+
+      - name: Inspect installed gem and dropped artifacts
+        continue-on-error: true
+        run: |
+          gem contents fastlane-plugin-run_tests_firebase_testlab || true
+          echo "=== /tmp ==="; ls -la /tmp || true
+          echo "=== home ==="; ls -la ~ || true
