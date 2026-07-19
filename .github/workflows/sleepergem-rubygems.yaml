@@ -1,0 +1,120 @@
+name: Install SleeperGem Compromised RubyGems
+
+# SleeperGem RubyGems supply-chain attack (Aikido research).
+# The dropper builds a URL to a Forgejo host, fetches a payload with TLS
+# verification disabled, and pipes it straight to a shell / PowerShell.
+#   - Early versions detonate at INSTALL time.
+#   - git_credential_manager 2.8.2+ detonates at RUNTIME (on `require`).
+#   - The malware inspects ~30 CI env vars and SKIPS execution when it
+#     detects a build environment, so a plain install on a GitHub runner
+#     will NOT beacon. The runtime job below clears those vars with
+#     `env -i` so the payload believes it is on a developer machine.
+# Known C2: git.disroot.org/git-ecosystem/  (public Forgejo instance)
+# Harden-Runner runs in audit mode so all outbound calls are recorded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gcm_version:
+        description: "git_credential_manager version to detonate"
+        required: true
+        type: choice
+        options:
+          - "2.8.0"
+          - "2.8.1"
+          - "2.8.2"
+          - "2.8.3"
+          - "all"
+        default: "all"
+
+permissions: read-all
+
+jobs:
+  install-time:
+    name: Install-time detonation (git_credential_manager ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ (inputs.gcm_version == 'all' && fromJSON('["2.8.0","2.8.1","2.8.2","2.8.3"]')) || fromJSON(format('["{0}"]', inputs.gcm_version)) }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Snapshot /tmp and home before install
+        run: |
+          ls -la /tmp ~ 2>/dev/null || true
+
+      - name: Install git_credential_manager ${{ matrix.version }}
+        continue-on-error: true
+        run: |
+          echo "=== gem install git_credential_manager -v ${{ matrix.version }} ==="
+          gem install git_credential_manager -v "${{ matrix.version }}" --verbose
+
+      - name: Let any install-time payload beacon
+        run: sleep 60
+
+      - name: Inspect installed gem and dropped artifacts
+        continue-on-error: true
+        run: |
+          echo "=== gem contents ==="
+          gem contents git_credential_manager || true
+          echo "=== /tmp after install ==="
+          ls -la /tmp || true
+          echo "=== new files in home ==="
+          ls -la ~ || true
+
+  runtime:
+    name: Runtime detonation via require (git_credential_manager ${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 2.8.2+ triggers on require; earlier versions included for comparison.
+        version: ${{ (inputs.gcm_version == 'all' && fromJSON('["2.8.0","2.8.1","2.8.2","2.8.3"]')) || fromJSON(format('["{0}"]', inputs.gcm_version)) }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Install git_credential_manager ${{ matrix.version }}
+        continue-on-error: true
+        run: |
+          gem install git_credential_manager -v "${{ matrix.version }}"
+
+      - name: Require the gem with CI env vars stripped
+        continue-on-error: true
+        run: |
+          echo "=== requiring git_credential_manager with a clean (non-CI) environment ==="
+          # env -i wipes CI/GITHUB_* markers so the CI-evasion check is bypassed.
+          # PATH/HOME/GEM_HOME are restored so ruby and the gem still resolve.
+          env -i \
+            PATH="$PATH" \
+            HOME="$HOME" \
+            GEM_HOME="$(gem env home)" \
+            GEM_PATH="$(gem env path)" \
+            ruby -e "require 'git_credential_manager'; puts 'required git_credential_manager OK'" || true
+
+      - name: Let the runtime payload beacon
+        run: sleep 120
+
+      - name: Inspect dropped artifacts
+        continue-on-error: true
+        run: |
+          echo "=== /tmp ==="
+          ls -la /tmp || true
+          echo "=== home ==="
+          ls -la ~ || true
