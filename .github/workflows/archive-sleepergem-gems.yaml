@@ -1,0 +1,104 @@
+name: Archive SleeperGem Compromised Gems
+
+# Archives the SleeperGem compromised .gem LOADER PACKAGES so we retain a copy
+# for future analysis even after RubyGems yanks them.
+#
+# The other SleeperGem workflows either detonate the gems (sleepergem-rubygems)
+# or capture the SECOND-STAGE payload from the C2 (analyze-sleepergem-payload).
+# Neither of those stores the malicious .gem files themselves. This workflow
+# fills that gap: it downloads each compromised .gem tarball with `gem fetch`
+# and uploads them as a build artifact.
+#
+# SAFETY: `gem fetch <name> -v <version>` ONLY downloads the .gem tarball into
+# the current directory. It does NOT install the gem, does NOT run any
+# install-time hooks, and does NOT `require`/load the gem code, so no payload
+# executes on the runner. The .gem files are inert archives here.
+#
+# WARNING: The archived .gem files are LIVE MALWARE. They must NEVER be
+# installed, required, unpacked-and-run, or otherwise executed outside a
+# disposable sandbox. Handle the downloaded artifact as hostile.
+#
+# Compromised versions archived:
+#   - git_credential_manager: 2.8.0, 2.8.1, 2.8.2, 2.8.3
+#   - Dendreo:                1.1.3, 1.1.4
+#   - fastlane-plugin-run_tests_firebase_testlab: 0.3.2
+
+on:
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  archive:
+    name: Fetch and archive compromised .gem files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Create gems output directory
+        run: mkdir -p gems
+
+      - name: git_credential_manager 2.8.0
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch git_credential_manager -v 2.8.0 && echo "FETCH_OK: git_credential_manager-2.8.0"
+
+      - name: git_credential_manager 2.8.1
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch git_credential_manager -v 2.8.1 && echo "FETCH_OK: git_credential_manager-2.8.1"
+
+      - name: git_credential_manager 2.8.2
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch git_credential_manager -v 2.8.2 && echo "FETCH_OK: git_credential_manager-2.8.2"
+
+      - name: git_credential_manager 2.8.3
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch git_credential_manager -v 2.8.3 && echo "FETCH_OK: git_credential_manager-2.8.3"
+
+      - name: Dendreo 1.1.3
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch Dendreo -v 1.1.3 && echo "FETCH_OK: Dendreo-1.1.3"
+
+      - name: Dendreo 1.1.4
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch Dendreo -v 1.1.4 && echo "FETCH_OK: Dendreo-1.1.4"
+
+      - name: fastlane-plugin-run_tests_firebase_testlab 0.3.2
+        continue-on-error: true
+        working-directory: gems
+        run: |
+          gem fetch fastlane-plugin-run_tests_firebase_testlab -v 0.3.2 && echo "FETCH_OK: fastlane-plugin-run_tests_firebase_testlab-0.3.2"
+
+      - name: List and checksum archived gems (provenance)
+        run: |
+          echo "=== archived .gem files ==="
+          ls -la gems/ || true
+          echo "=== sha256 provenance ==="
+          sha256sum gems/*.gem || echo "no .gem files were fetched"
+
+      - name: Upload compromised .gem files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleepergem-gems
+          path: gems/
+          retention-days: 90
+          if-no-files-found: warn
