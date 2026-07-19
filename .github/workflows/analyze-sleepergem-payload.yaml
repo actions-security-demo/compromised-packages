@@ -1,0 +1,112 @@
+name: Analyze SleeperGem Second-Stage Payload
+
+# Static triage of the SleeperGem second-stage payload, performed ENTIRELY on a
+# GitHub-hosted runner under Harden-Runner (audit). The loader gem
+# (git_credential_manager 2.8.x) downloads these files from the attacker's
+# Forgejo C2 and, on a real dev machine, would execute deploy.sh.
+#
+# This workflow only FETCHES and INSPECTS the files (cat / sha256sum / file /
+# strings). It NEVER executes deploy.sh or the ELF binary — no chmod +x, no
+# interpreter is ever pointed at them. The goal is to characterise the payload
+# (C2 endpoints, persistence, privesc, exfil indicators) safely.
+#
+# C2: git.disroot.org/git-ecosystem/git-credential-manager/raw/branch/main/<os>/
+
+on:
+  workflow_dispatch:
+    inputs:
+      os_target:
+        description: "Which OS payload set to pull from the C2"
+        required: true
+        type: choice
+        options:
+          - "linux"
+          - "darwin"
+          - "windows"
+          - "all"
+        default: "all"
+
+permissions: read-all
+
+jobs:
+  analyze:
+    name: Static triage (${{ matrix.os }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ (inputs.os_target == 'all' && fromJSON('["linux","darwin","windows"]')) || fromJSON(format('["{0}"]', inputs.os_target)) }}
+    env:
+      # NOTE: TLS verification is intentionally disabled here (-k) only to mirror
+      # exactly what the malware's downloader does (OpenSSL VERIFY_NONE). The C2
+      # presents whatever cert it presents; we are fetching data to inspect, not
+      # trusting it.
+      C2_BASE: "https://git.disroot.org/git-ecosystem/git-credential-manager/raw/branch/main"
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Define per-OS payload file list
+        id: files
+        run: |
+          case "${{ matrix.os }}" in
+            linux)   echo "list=deploy.sh git-credential-manager" >> "$GITHUB_OUTPUT" ;;
+            darwin)  echo "list=deploy.sh notification-service-amd64 notification-service-arm64" >> "$GITHUB_OUTPUT" ;;
+            windows) echo "list=deploy.ps1 git-credential-manager-amd64.zip" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Fetch payload files (download only, never executed)
+        run: |
+          set -u
+          mkdir -p payload
+          for f in ${{ steps.files.outputs.list }}; do
+            url="$C2_BASE/${{ matrix.os }}/$f"
+            echo "=== GET $url ==="
+            # -k mirrors the malware's disabled TLS verification; -f fails on 404
+            curl -sk -f -A "Git" -o "payload/$f" "$url" \
+              && echo "  saved payload/$f ($(wc -c <"payload/$f") bytes)" \
+              || echo "  (not present / fetch failed for $f)"
+          done
+          # Belt-and-suspenders: make sure nothing is executable.
+          chmod -R a-x payload || true
+
+      - name: Fingerprint every fetched file (type + size + sha256)
+        run: |
+          echo "=== file ==="; file payload/* || true
+          echo "=== sha256 ==="; sha256sum payload/* || true
+          echo "=== sizes ==="; ls -la payload || true
+
+      - name: Print shell / PowerShell scripts (text payloads)
+        run: |
+          for s in payload/deploy.sh payload/deploy.ps1; do
+            if [ -f "$s" ]; then
+              echo "########## $s ##########"
+              cat "$s"
+              echo
+            fi
+          done
+
+      - name: Static strings triage of native binaries (IOCs, no execution)
+        run: |
+          for b in payload/*; do
+            case "$b" in
+              *deploy.sh|*deploy.ps1) continue ;;
+            esac
+            [ -f "$b" ] || continue
+            echo "########## strings triage: $b ##########"
+            echo "--- URLs / hosts ---"
+            strings -n 6 "$b" | grep -Eio 'https?://[a-z0-9._~:/?#@!$&()*+,;=%-]+|[a-z0-9.-]+\.(org|com|net|io|dev|ru|xyz|top)' | sort -u | head -100 || true
+            echo "--- suspicious paths / persistence / creds ---"
+            strings -n 6 "$b" | grep -Ei '/proc/|/etc/|\.ssh|\.aws|\.netrc|credential|token|passwd|systemd|crontab|cron|/usr/local/sbin|ping6|LD_PRELOAD|exfil|upload|bearer' | sort -u | head -100 || true
+          done
+
+      - name: Upload payload + analysis as artifact for offline review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleepergem-payload-${{ matrix.os }}
+          path: payload/
+          retention-days: 7
+          if-no-files-found: warn
