@@ -1,0 +1,73 @@
+name: Joyfill source inspection (no execution)
+
+# Installs each version and reads the built bundle source on the runner to confirm
+# whether the malicious payload is still present in the tarball served by npm.
+# NO import, NO execution, NO chmod. Pure source read: sha256, size, signature grep,
+# and the tail of each dist file (where the appended payload lives).
+
+on:
+  push:
+    branches: [detonate/joyfill-v2-runtime]
+  workflow_dispatch: {}
+
+permissions: read-all
+
+jobs:
+  inspect:
+    name: Inspect ${{ matrix.pkg }}@${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.0" }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.4" }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.6" }
+    steps:
+      - name: Harden the runner (Audit)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Download tarball WITHOUT running scripts
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/insp && cd /tmp/insp
+          npm init -y >/dev/null 2>&1
+          npm install --ignore-scripts --no-audit --no-fund "${{ matrix.pkg }}@${{ matrix.version }}"
+      - name: Hash and size the dist bundles
+        continue-on-error: true
+        run: |
+          cd /tmp/insp/node_modules/${{ matrix.pkg }}
+          echo "=== package.json main/module ==="
+          cat package.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('main=',d.get('main'));print('module=',d.get('module'));print('version=',d.get('version'))"
+          echo "=== dist file sizes + sha256 ==="
+          find dist -type f \( -name "*.js" -o -name "*.cjs" -o -name "*.mjs" \) -exec sha256sum {} \; 2>/dev/null || true
+          find dist -type f \( -name "*.js" -o -name "*.cjs" -o -name "*.mjs" \) -exec wc -c {} \; 2>/dev/null || true
+      - name: Grep bundles for payload signatures (source read only)
+        continue-on-error: true
+        run: |
+          cd /tmp/insp/node_modules/${{ matrix.pkg }}
+          echo "### Signature hits (filename:count) ###"
+          for sig in \
+            'TMfKQEd7TJJa5xNZJZ2Lep838vrzrs7mAP' \
+            'global.r' 'global.m' \
+            'reactGridLayoutUtils' \
+            'trongrid' 'aptoslabs' 'bsc-dataseed' \
+            'socket.io' 'ss_eval' 'ss_info' 'ss_upf' \
+            'A9-0135-3' 'Sec-V' \
+            'eth_getTransactionByHash' \
+            'ThZG+0jfXE6VAGOJ' ; do
+            n=$(grep -rIoF "$sig" dist 2>/dev/null | wc -l | tr -d ' ')
+            echo "  [$n]  $sig"
+          done
+          echo ""
+          echo "### Tail (last 12 lines) of each dist bundle — appended payload lives here ###"
+          for f in $(find dist -type f \( -name "*.js" -o -name "*.cjs" -o -name "*.mjs" \)); do
+            echo "----- $f (last 12 lines) -----"
+            tail -n 12 "$f" | cut -c1-300
+            echo ""
+          done
