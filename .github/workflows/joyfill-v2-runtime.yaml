@@ -1,0 +1,79 @@
+name: Joyfill runtime detonation v2
+
+# v2 fixes two flaws found in the first run:
+#  1. @joyfill/layouts entry (dist/index.cjs.js) is actually ESM -> require() threw
+#     ERR_REQUIRE_ESM and never loaded. Use dynamic import() (loads ESM and CJS).
+#  2. `node -e "require(...)"` exited the moment require returned, killing the event
+#     loop before any async payload work (socket.io connect, blockchain-RPC C2
+#     lookup, detached /$/boot spawn) could run. Hold the SAME process open in-line.
+#
+# Triggered by push to this throwaway branch so it runs without merging to main.
+
+on:
+  push:
+    branches: [detonate/joyfill-v2-runtime]
+
+permissions: read-all
+
+jobs:
+  runtime:
+    name: Runtime import held-open (${{ matrix.pkg }}@${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.0" }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.1" }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.2" }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.4" }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.5" }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.6" }
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Snapshot before
+        run: ls -la /tmp ~ 2>/dev/null || true
+      - name: Install ${{ matrix.pkg }}@${{ matrix.version }}
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/detonate && cd /tmp/detonate
+          npm init -y >/dev/null 2>&1
+          npm install "${{ matrix.pkg }}@${{ matrix.version }}"
+      - name: Import and hold the process open (CI env stripped)
+        continue-on-error: true
+        run: |
+          cd /tmp/detonate
+          cat > /tmp/detonate/trigger.mjs <<'EOF'
+          const p = process.env.PKG;
+          try {
+            const m = await import(p);
+            console.log('imported OK:', p, '-', Object.keys(m || {}).length, 'exports');
+          } catch (e) {
+            console.log('import failed:', e && e.message);
+          }
+          // keep the event loop alive so async payload work can run and beacon
+          await new Promise(r => setTimeout(r, 180000));
+          EOF
+          # env -i strips CI/GITHUB_* so a CI-evading dropper believes it is on a dev box.
+          env -i \
+            PATH="$PATH" HOME="$HOME" \
+            NODE_PATH="/tmp/detonate/node_modules" \
+            PKG="${{ matrix.pkg }}" \
+            node /tmp/detonate/trigger.mjs || true
+      - name: Sweep for persistence + dropped artifacts (no execution)
+        continue-on-error: true
+        run: |
+          echo "=== /tmp and HOME ==="
+          ls -la /tmp ~ 2>/dev/null || true
+          echo "=== staging dirs the stealer uses ==="
+          ls -la ~/.npm /tmp/.npm 2>/dev/null || true
+          echo "=== injection marker tags in installed tree + HOME (source read only) ==="
+          grep -rlE "C25061[7-9]A|C25062[0]A|C260511A|C260512A|RS260605" \
+            /tmp/detonate/node_modules ~ 2>/dev/null | head -40 || true
