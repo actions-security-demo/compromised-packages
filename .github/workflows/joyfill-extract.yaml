@@ -1,0 +1,56 @@
+name: Joyfill payload extraction (no execution)
+
+# Locates and prints the injected obfuscated region in the malicious bundles,
+# and confirms the same implant marker appears in both packages. Source read only.
+
+on:
+  push:
+    branches: [detonate/joyfill-v2-runtime]
+  workflow_dispatch: {}
+
+permissions: read-all
+
+jobs:
+  extract:
+    name: Extract payload ${{ matrix.pkg }}@${{ matrix.mal }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/layouts",    mal: "0.1.2-2773.beta.0",      entry: "dist/index.cjs.js" }
+          - { pkg: "@joyfill/components", mal: "4.0.0-rc24-2773-beta.4",  entry: "dist/index.js" }
+    steps:
+      - name: Harden the runner (Audit)
+        uses: step-security/harden-runner@v2
+        with: { egress-policy: audit }
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with: { node-version: "18" }
+      - name: Install malicious (no scripts)
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/mal && cd /tmp/mal && npm init -y >/dev/null 2>&1
+          npm install --ignore-scripts --no-audit --no-fund "${{ matrix.pkg }}@${{ matrix.mal }}"
+      - name: Locate injected region and print context (Python, no import)
+        continue-on-error: true
+        run: |
+          python3 - <<'PY'
+          import re, os
+          p = "/tmp/mal/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}"
+          s = open(p, "r", errors="replace").read()
+          print("entry:", p, "len:", len(s))
+          # shared implant marker observed in the clean-vs-mal diff of BOTH packages
+          for marker in ["cbRRr4f", "rmcej%otb%", "x1r1..D4t"]:
+              i = s.find(marker)
+              print(f"\n=== marker {marker!r} found at index {i} ===")
+              if i >= 0:
+                  print(s[max(0,i-400): i+600])
+          # entropy scan: find the run of "code" that is mostly non-ascii-identifier soup
+          # split on the sourcemap comment; payload precedes normal module code
+          print("\n=== FIRST 1200 chars of entry ===")
+          print(s[:1200])
+          print("\n=== count of high-signal obfuscation tokens ===")
+          for t in ["%R", "RR", "]R", "R]", "(function", "return", "charCodeAt", "fromCharCode", "String.", "[]["]:
+              print(f"  {t!r}: {s.count(t)}")
+          PY
