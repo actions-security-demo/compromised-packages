@@ -1,0 +1,75 @@
+name: Joyfill clean-vs-malicious source diff (no execution)
+
+# Rigorously test whether the Socket-flagged versions contain payload the clean
+# siblings do not. Installs both with --ignore-scripts, diffs the entry bundles,
+# and scans added code for obfuscation markers that survive minification.
+# NO import, NO execution.
+
+on:
+  push:
+    branches: [detonate/joyfill-v2-runtime]
+  workflow_dispatch: {}
+
+permissions: read-all
+
+jobs:
+  diff:
+    name: Diff ${{ matrix.pkg }} ${{ matrix.clean }} vs ${{ matrix.mal }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/components", clean: "4.0.0-rc24",        mal: "4.0.0-rc24-2773-beta.4", entry: "dist/index.js" }
+          - { pkg: "@joyfill/layouts",    clean: "0.1.2-1771.beta.5", mal: "0.1.2-2773.beta.0",      entry: "dist/index.cjs.js" }
+    steps:
+      - name: Harden the runner (Audit)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with: { node-version: "18" }
+      - name: Install clean + malicious (no scripts)
+        continue-on-error: true
+        run: |
+          for tag in clean mal; do :; done
+          mkdir -p /tmp/clean /tmp/mal
+          (cd /tmp/clean && npm init -y >/dev/null 2>&1 && npm install --ignore-scripts --no-audit --no-fund "${{ matrix.pkg }}@${{ matrix.clean }}")
+          (cd /tmp/mal   && npm init -y >/dev/null 2>&1 && npm install --ignore-scripts --no-audit --no-fund "${{ matrix.pkg }}@${{ matrix.mal }}")
+      - name: Entry file size + sha256
+        continue-on-error: true
+        run: |
+          C=/tmp/clean/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          M=/tmp/mal/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          echo "CLEAN  $(wc -c < "$C" 2>/dev/null) bytes  $(sha256sum "$C" 2>/dev/null | cut -d' ' -f1)"
+          echo "MAL    $(wc -c < "$M" 2>/dev/null) bytes  $(sha256sum "$M" 2>/dev/null | cut -d' ' -f1)"
+          echo "=== list ALL dist files in each (name + size) ==="
+          echo "-- clean --"; (cd /tmp/clean/node_modules/${{ matrix.pkg }} && find dist -type f -printf '%10s  %p\n' | sort -k2)
+          echo "-- mal --";   (cd /tmp/mal/node_modules/${{ matrix.pkg }}   && find dist -type f -printf '%10s  %p\n' | sort -k2)
+      - name: Structural obfuscation markers in MALICIOUS entry
+        continue-on-error: true
+        run: |
+          M=/tmp/mal/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          echo "### marker counts in malicious entry ###"
+          for m in 'Function(' 'eval(' 'atob(' 'Buffer.from' 'child_process' 'spawn(' 'require(' 'globalThis' 'process.env' '\x' '_0x'; do
+            n=$(grep -oF "$m" "$M" 2>/dev/null | wc -l | tr -d ' '); echo "  [$n]  $m"
+          done
+          echo "### longest base64/hex-looking runs (>=100 chars) — top 5 by length ###"
+          grep -oE '[A-Za-z0-9+/]{100,}={0,2}' "$M" 2>/dev/null | awk '{print length, substr($0,1,120)}' | sort -rn | head -5 || true
+      - name: Normalized diff — code present in MAL but not CLEAN
+        continue-on-error: true
+        run: |
+          C=/tmp/clean/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          M=/tmp/mal/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          # break minified code into pseudo-lines so diff is meaningful
+          tr ';{}' '\n\n\n' < "$C" | sed 's/^[[:space:]]*//' | sort -u > /tmp/clean.norm
+          tr ';{}' '\n\n\n' < "$M" | sed 's/^[[:space:]]*//' | sort -u > /tmp/mal.norm
+          echo "clean pseudo-lines: $(wc -l < /tmp/clean.norm) ; mal: $(wc -l < /tmp/mal.norm)"
+          echo "### pseudo-lines present in MAL but not CLEAN (first 60, truncated 300c) ###"
+          comm -13 /tmp/clean.norm /tmp/mal.norm | awk 'length>8' | head -60 | cut -c1-300
+      - name: First 1500 bytes of malicious entry (payload is often prepended)
+        continue-on-error: true
+        run: |
+          M=/tmp/mal/node_modules/${{ matrix.pkg }}/${{ matrix.entry }}
+          head -c 1500 "$M" 2>/dev/null; echo
