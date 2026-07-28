@@ -1,0 +1,117 @@
+name: Install Joyfill Compromised Packages
+
+# Detonates the July 2026 Joyfill npm compromise (Socket.dev advisory).
+# Malicious payload runs at require/import time (NOT a postinstall hook), so
+# --ignore-scripts does not prevent it. The runtime job strips CI env markers
+# with `env -i` in case the dropper skips CI environments.
+#
+# Confirmed-malicious (Socket): @joyfill/layouts@0.1.2-2773.beta.0,
+# @joyfill/components@4.0.0-rc24-2773-beta.4. The other 2773-marked betas were
+# published hours later the same day and are treated as part of the same campaign.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version marker to detonate"
+        required: true
+        type: choice
+        options: ["all", "socket-confirmed-only"]
+        default: "all"
+
+permissions: read-all
+
+jobs:
+  install-time:
+    name: Install-time (${{ matrix.pkg }}@${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.0",    confirmed: true }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.1",    confirmed: false }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.2",    confirmed: false }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.4", confirmed: true }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.5", confirmed: false }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.6", confirmed: false }
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Snapshot before install
+        run: ls -la /tmp ~ 2>/dev/null || true
+      - name: Skip unconfirmed versions when running socket-confirmed-only
+        if: ${{ inputs.version == 'socket-confirmed-only' && matrix.confirmed == false }}
+        run: echo "Skipping ${{ matrix.pkg }}@${{ matrix.version }} for this input" && exit 0
+      - name: Install ${{ matrix.pkg }}@${{ matrix.version }}
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/detonate && cd /tmp/detonate
+          npm init -y >/dev/null 2>&1
+          npm install "${{ matrix.pkg }}@${{ matrix.version }}" --verbose
+      - name: Let any install-time payload beacon
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        run: sleep 60
+      - name: Inspect dropped artifacts
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        continue-on-error: true
+        run: |
+          ls -la /tmp ~ /tmp/detonate/node_modules 2>/dev/null || true
+
+  runtime:
+    name: Runtime via require (${{ matrix.pkg }}@${{ matrix.version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.0",    confirmed: true }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.1",    confirmed: false }
+          - { pkg: "@joyfill/layouts",    version: "0.1.2-2773.beta.2",    confirmed: false }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.4", confirmed: true }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.5", confirmed: false }
+          - { pkg: "@joyfill/components", version: "4.0.0-rc24-2773-beta.6", confirmed: false }
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Skip unconfirmed versions when running socket-confirmed-only
+        if: ${{ inputs.version == 'socket-confirmed-only' && matrix.confirmed == false }}
+        run: echo "Skipping ${{ matrix.pkg }}@${{ matrix.version }} for this input" && exit 0
+      - name: Install ${{ matrix.pkg }}@${{ matrix.version }}
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/detonate && cd /tmp/detonate
+          npm init -y >/dev/null 2>&1
+          npm install "${{ matrix.pkg }}@${{ matrix.version }}"
+      - name: Require the package with CI env vars stripped
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        continue-on-error: true
+        run: |
+          cd /tmp/detonate
+          # env -i wipes CI/GITHUB_* markers so any CI-evasion check is bypassed.
+          # Restore only what Node needs to resolve the package.
+          env -i \
+            PATH="$PATH" HOME="$HOME" \
+            NODE_PATH="/tmp/detonate/node_modules" \
+            node -e "require('${{ matrix.pkg }}'); console.log('required OK')" || true
+      - name: Let the runtime payload beacon
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        run: sleep 120
+      - name: Inspect dropped artifacts
+        if: ${{ inputs.version == 'all' || matrix.confirmed == true }}
+        continue-on-error: true
+        run: ls -la /tmp ~ 2>/dev/null || true
